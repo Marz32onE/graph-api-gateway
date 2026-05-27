@@ -1,0 +1,49 @@
+# Local dev rig: gateway + kube-state-graph stub + switch backend stub + OTel collector.
+#
+# The primary stub returns a k8s node entry with data.ipaddress; the switch stub
+# returns a shadow keyed on that same IP plus a switch chassis + edge — so the
+# end-to-end pipeline (extract → switch fetch → reconcile → merge) is exercised.
+#
+# Usage:
+#   docker compose -f local/docker-compose.yaml up --build
+#
+# Then:
+#   curl http://localhost:8080/v1/graph
+#   open http://localhost:8080/docs
+
+services:
+  gateway:
+    build:
+      context: ..
+      dockerfile: deploy/docker/Dockerfile
+    image: graph-api-gateway:dev
+    environment:
+      LISTEN_ADDR: ":8080"
+      LOG_LEVEL: "debug"
+      LOG_FORMAT: "json"
+      KUBE_STATE_GRAPH_URL: "http://stub-ksg"
+      SWITCH_GRAPH_URL: "http://stub-switch"
+      OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector:4318"
+      OTEL_SERVICE_NAME: "graph-api-gateway"
+    ports:
+      - "8080:8080"
+    depends_on:
+      - stub-ksg
+      - stub-switch
+
+  stub-ksg:
+    image: caddy:2-alpine
+    command: ["caddy", "respond", "--listen", ":80", "--body", '{"apiVersion":"v1","elements":{"nodes":[{"data":{"id":"prod/abc","type":"node","ipaddress":["10.0.0.1"]}},{"data":{"id":"prod/pod1","type":"pod"}}],"edges":[{"data":{"id":"e1","type":"pod-runs-on-node","source":"prod/pod1","target":"prod/abc"}}]}}']
+    expose: ["80"]
+
+  stub-switch:
+    image: caddy:2-alpine
+    command: ["caddy", "respond", "--listen", ":80", "--body", '{"apiVersion":"v1","elements":{"nodes":[{"data":{"id":"sw-host:xyz","type":"host","ipaddress":["10.0.0.1"]}},{"data":{"id":"switch:tor-1","type":"switch"}}],"edges":[{"data":{"id":"e-sw","type":"host-attached","source":"sw-host:xyz","target":"switch:tor-1"}}]}}']
+    expose: ["80"]
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.108.0
+    command: ["--config=/etc/otel-config.yaml"]
+    volumes:
+      - ./otel-collector-config.yaml:/etc/otel-config.yaml:ro
+    expose: ["4318"]

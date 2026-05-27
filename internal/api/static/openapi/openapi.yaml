@@ -1,0 +1,236 @@
+components:
+    schemas:
+        github_com_marz32one_graph-api-gateway_internal_client.CytoscapeGraph:
+            properties:
+                apiVersion:
+                    type: string
+                clusters:
+                    items:
+                        type: string
+                    type: array
+                    uniqueItems: false
+                elements:
+                    $ref: '#/components/schemas/github_com_marz32one_graph-api-gateway_internal_client.Elements'
+            type: object
+        github_com_marz32one_graph-api-gateway_internal_client.Edge:
+            properties:
+                data:
+                    $ref: '#/components/schemas/github_com_marz32one_graph-api-gateway_internal_client.EdgeData'
+            type: object
+        github_com_marz32one_graph-api-gateway_internal_client.EdgeData:
+            properties:
+                id:
+                    type: string
+                labels:
+                    additionalProperties:
+                        type: string
+                    type: object
+                source:
+                    type: string
+                target:
+                    type: string
+                type:
+                    type: string
+            type: object
+        github_com_marz32one_graph-api-gateway_internal_client.Elements:
+            properties:
+                edges:
+                    items:
+                        $ref: '#/components/schemas/github_com_marz32one_graph-api-gateway_internal_client.Edge'
+                    type: array
+                    uniqueItems: false
+                nodes:
+                    items:
+                        $ref: '#/components/schemas/github_com_marz32one_graph-api-gateway_internal_client.Node'
+                    type: array
+                    uniqueItems: false
+            type: object
+        github_com_marz32one_graph-api-gateway_internal_client.Node:
+            properties:
+                data:
+                    $ref: '#/components/schemas/github_com_marz32one_graph-api-gateway_internal_client.NodeData'
+            type: object
+        github_com_marz32one_graph-api-gateway_internal_client.NodeData:
+            properties:
+                id:
+                    type: string
+                ipaddress:
+                    items:
+                        type: string
+                    type: array
+                    uniqueItems: false
+                labels:
+                    additionalProperties:
+                        type: string
+                    type: object
+                name:
+                    type: string
+                type:
+                    type: string
+            type: object
+        internal_api.errorResponse:
+            properties:
+                error:
+                    type: string
+            type: object
+externalDocs:
+    description: ""
+    url: ""
+info:
+    description: 'HTTP gateway that runs a sequential pipeline: (1) fetch the kube-state-graph response with the inbound query, (2) extract `data.ipaddress` from every `node`-type entry, (3) if any IPs were collected, fetch the switch backend with those IPs batched as `?ip=…`, (4) re-anchor switch shadow nodes onto kube node IDs via IP match, (5) merge into a single Cytoscape.js envelope. Propagates W3C trace context end-to-end and emits structured logs via slog. Any backend failure returns `502`.'
+    title: graph-api-gateway
+    version: v1
+openapi: 3.1.0
+paths:
+    /docs:
+        get:
+            responses:
+                "200":
+                    content:
+                        text/html:
+                            schema:
+                                type: string
+                    description: HTML
+            summary: API reference UI (Scalar)
+            tags:
+                - docs
+    /docs/assets/{path}:
+        get:
+            parameters:
+                - description: Asset path
+                  in: path
+                  name: path
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                type: file
+                    description: OK
+                "404":
+                    content:
+                        application/json:
+                            schema:
+                                type: string
+                    description: asset not found
+            summary: API reference asset (vendored)
+            tags:
+                - docs
+    /livez:
+        get:
+            responses:
+                "200":
+                    content:
+                        text/plain:
+                            schema:
+                                type: string
+                    description: ok
+            summary: Liveness probe
+            tags:
+                - health
+    /openapi.json:
+        get:
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                type: string
+                    description: OpenAPI 3.1 JSON
+            summary: OpenAPI spec (JSON)
+            tags:
+                - docs
+    /openapi.yaml:
+        get:
+            responses:
+                "200":
+                    content:
+                        application/yaml:
+                            schema:
+                                type: string
+                    description: OpenAPI 3.1 YAML
+            summary: OpenAPI spec (YAML)
+            tags:
+                - docs
+    /readyz:
+        get:
+            responses:
+                "200":
+                    content:
+                        text/plain:
+                            schema:
+                                type: string
+                    description: ok
+            summary: Readiness probe
+            tags:
+                - health
+    /v1/graph:
+        get:
+            description: 'Runs a sequential pipeline: (1) forward the inbound query to kube-state-graph and parse the Cytoscape response; (2) collect `data.ipaddress` from every `node`-type entry; (3) if any IPs were collected, call the switch backend as `GET /v1/graph?ip=<a>&ip=<b>...`; (4) re-anchor the switch graph onto kube node IDs by matching `data.ipaddress` (switch shadow nodes are dropped, their edge references rewritten); (5) merge primary + reconciled switch (union nodes by `data.id` with kube winning, dedup edges by `(type,source,target)`). Any stage failure returns `502`.'
+            parameters:
+                - description: Window start (RFC 3339 or Unix seconds) — forwarded to kube-state-graph
+                  in: query
+                  name: start
+                  schema:
+                    type: string
+                - description: Window end (RFC 3339 or Unix seconds) — forwarded to kube-state-graph
+                  in: query
+                  name: end
+                  schema:
+                    type: string
+                - description: Restrict to a cluster (repeatable) — forwarded to kube-state-graph
+                  in: query
+                  name: cluster
+                  schema:
+                    type: string
+                - description: Restrict to a namespace (repeatable) — forwarded to kube-state-graph
+                  in: query
+                  name: namespace
+                  schema:
+                    type: string
+                - description: Restrict edges by type (repeatable) — forwarded to kube-state-graph
+                  in: query
+                  name: edge_type
+                  schema:
+                    type: string
+                - description: Restrict to nodes whose name matches exactly (repeatable) — forwarded to kube-state-graph
+                  in: query
+                  name: name
+                  schema:
+                    type: string
+                - description: Anchor a traversal at a node id — forwarded to kube-state-graph
+                  in: query
+                  name: root
+                  schema:
+                    type: string
+                - description: Traversal depth — forwarded to kube-state-graph
+                  in: query
+                  name: depth
+                  schema:
+                    type: integer
+                - description: Traversal direction (`in`|`out`|`both`) — forwarded to kube-state-graph
+                  in: query
+                  name: direction
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/github_com_marz32one_graph-api-gateway_internal_client.CytoscapeGraph'
+                    description: OK
+                "502":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/internal_api.errorResponse'
+                    description: Bad Gateway
+            summary: Merged kube + switch graph (Cytoscape.js)
+            tags:
+                - graph
+servers:
+    - url: /
