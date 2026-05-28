@@ -2,8 +2,10 @@ package api
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/url"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
@@ -30,16 +32,20 @@ import (
 //	@Param			direction	query		string	false	"Traversal direction (`in`|`out`|`both`) — forwarded to kube-state-graph"
 //	@Success		200			{object}	client.CytoscapeGraph
 //	@Failure		502			{object}	errorResponse
+//	@Failure		504			{object}	errorResponse
 //	@Router			/v1/graph [get]
 func (s *Server) handleGraph(c *gin.Context) {
 	ctx := c.Request.Context()
 
-	ksgCtx, cancel := context.WithTimeout(ctx, s.cfg.KSG.Timeout)
-	ksgGraph, err := s.ksg.FetchGraph(ksgCtx, client.GraphQuery{RawQuery: c.Request.URL.RawQuery})
-	cancel()
+	fetch := func(timeout time.Duration, b client.GraphBackend, q client.GraphQuery) (*client.CytoscapeGraph, error) {
+		stageCtx, cancel := context.WithTimeout(ctx, timeout)
+		defer cancel()
+		return b.FetchGraph(stageCtx, q)
+	}
+
+	ksgGraph, err := fetch(s.cfg.KSG.Timeout, s.ksg, client.GraphQuery{RawQuery: c.Request.URL.RawQuery})
 	if err != nil {
-		s.logger.ErrorContext(ctx, "ksg fetch failed", "err", err.Error())
-		c.JSON(http.StatusBadGateway, errorResponse{Error: "upstream_unavailable"})
+		s.writeFetchError(c, "ksg fetch failed", err)
 		return
 	}
 
@@ -47,12 +53,9 @@ func (s *Server) handleGraph(c *gin.Context) {
 
 	var switchGraph *client.CytoscapeGraph
 	if len(ips) > 0 {
-		switchCtx, cancel := context.WithTimeout(ctx, s.cfg.Switch.Timeout)
-		switchGraph, err = s.switchClient.FetchGraph(switchCtx, client.GraphQuery{RawQuery: buildIPQuery(ips)})
-		cancel()
+		switchGraph, err = fetch(s.cfg.Switch.Timeout, s.switchClient, client.GraphQuery{RawQuery: buildIPQuery(ips)})
 		if err != nil {
-			s.logger.ErrorContext(ctx, "switch fetch failed", "err", err.Error())
-			c.JSON(http.StatusBadGateway, errorResponse{Error: "upstream_unavailable"})
+			s.writeFetchError(c, "switch fetch failed", err)
 			return
 		}
 	}
@@ -60,6 +63,28 @@ func (s *Server) handleGraph(c *gin.Context) {
 	reconciled := pipeline.ReconcileSwitch(ksgGraph, switchGraph)
 	merged := merge.Merge(ksgGraph, reconciled)
 	c.JSON(http.StatusOK, merged)
+}
+
+// writeFetchError maps a backend fetch error to the right status code and
+// emits one structured log line. Client disconnects (context.Canceled on the
+// inbound request) are dropped silently — there is no peer to respond to and
+// counting them as upstream failures pollutes SLOs. Per-stage timeouts surface
+// as 504; everything else as 502.
+func (s *Server) writeFetchError(c *gin.Context, msg string, err error) {
+	ctx := c.Request.Context()
+	if errors.Is(ctx.Err(), context.Canceled) {
+		s.logger.InfoContext(ctx, msg+" (client cancelled)", "err", err.Error())
+		// Best-effort marker for any middleware reading the writer status.
+		c.AbortWithStatus(499)
+		return
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		s.logger.ErrorContext(ctx, msg+" (deadline exceeded)", "err", err.Error())
+		c.JSON(http.StatusGatewayTimeout, errorResponse{Error: "upstream_timeout"})
+		return
+	}
+	s.logger.ErrorContext(ctx, msg, "err", err.Error())
+	c.JSON(http.StatusBadGateway, errorResponse{Error: "upstream_unavailable"})
 }
 
 // buildIPQuery encodes ips as `ip=<a>&ip=<b>&...` with proper URL escaping.

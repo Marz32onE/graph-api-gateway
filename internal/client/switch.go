@@ -32,3 +32,8 @@ func NewSwitchGraphClient(baseURL, apiKey string, timeout time.Duration) *Switch
 func (c *SwitchGraphClient) FetchGraph(ctx context.Context, q GraphQuery) (*CytoscapeGraph, error) {
 	return fetchGraph(ctx, c.resty, c.baseURL, q)
 }
+
+// Probe checks that the switch backend is reachable, used by /readyz.
+func (c *SwitchGraphClient) Probe(ctx context.Context) error {
+	return probeBackend(ctx, c.resty, c.baseURL)
+}

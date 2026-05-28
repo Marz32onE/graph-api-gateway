@@ -89,5 +89,5 @@ Every inbound request SHALL be tagged with a request ID following the kube-state
 The service SHALL load configuration from environment variables and SHALL fail fast if either backend URL is missing.
 
 #### Scenario: Missing backend URL aborts startup
-- **WHEN** the binary is launched with `BACKEND_PRIMARY_URL` or `BACKEND_SWITCH_URL` unset
+- **WHEN** the binary is launched with `KUBE_STATE_GRAPH_URL` or `SWITCH_GRAPH_URL` unset
 - **THEN** the process exits non-zero with stderr naming the missing key

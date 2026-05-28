@@ -35,8 +35,11 @@ func New(cfg *config.Config, logger *slog.Logger, ksg *client.KubeStateGraphClie
 	}
 
 	r.Use(gin.Recovery())
-	r.Use(requestIDMiddleware())
+	// otelgin must run before requestIDMiddleware so the latter can decorate
+	// the active span with http.request_id, giving the trace backend the same
+	// correlation key as the access log.
 	r.Use(otelgin.Middleware(build.ServiceName))
+	r.Use(requestIDMiddleware())
 	r.Use(loggingMiddleware(logger))
 
 	r.GET("/livez", s.handleLivez)

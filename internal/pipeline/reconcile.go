@@ -37,10 +37,16 @@ func ReconcileSwitch(primary, switchGraph *client.CytoscapeGraph) *client.Cytosc
 		}
 	}
 
-	// Clusters are intentionally left nil — downstream Merge unions Clusters
-	// across all inputs, so copying them here would just be thrown away.
+	// Clusters are passed through so Merge can union switch-only clusters
+	// with the kube side. Defensive copy keeps the "inputs are not mutated"
+	// contract intact.
+	var clusters []string
+	if len(switchGraph.Clusters) > 0 {
+		clusters = append(clusters, switchGraph.Clusters...)
+	}
 	out := &client.CytoscapeGraph{
 		APIVersion: switchGraph.APIVersion,
+		Clusters:   clusters,
 		Elements: client.Elements{
 			Nodes: make([]client.Node, 0, len(switchGraph.Elements.Nodes)),
 			Edges: make([]client.Edge, 0, len(switchGraph.Elements.Edges)),

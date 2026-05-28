@@ -80,8 +80,14 @@ func loadBackend(prefix string) (Backend, error) {
 	if err != nil || u.Scheme == "" || u.Host == "" {
 		return Backend{}, fmt.Errorf("config: %s is not a valid absolute URL: %q", urlKey, raw)
 	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return Backend{}, fmt.Errorf("config: %s scheme must be http or https, got %q", urlKey, u.Scheme)
+	}
 	if u.RawQuery != "" || u.Fragment != "" {
 		return Backend{}, fmt.Errorf("config: %s must not contain a query or fragment: %q", urlKey, raw)
+	}
+	if u.User != nil {
+		return Backend{}, fmt.Errorf("config: %s must not embed userinfo; use %s instead", urlKey, keyKey)
 	}
 
 	timeout := defaultBackendTimeout

@@ -18,6 +18,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -133,7 +134,7 @@ func mutateParameters(doc map[string]any) {
 }
 
 func isHTTPVerb(s string) bool {
-	switch s {
+	switch strings.ToLower(s) {
 	case "get", "put", "post", "delete", "options", "head", "patch", "trace":
 		return true
 	}

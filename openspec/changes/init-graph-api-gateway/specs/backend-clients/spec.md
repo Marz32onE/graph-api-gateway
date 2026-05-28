@@ -1,7 +1,7 @@
 ## ADDED Requirements
 
 ### Requirement: Shared Backend Interface
-The codebase SHALL define a single `GraphBackend` interface exposing `Name() string` and `FetchGraph(ctx, GraphQuery) (*CytoscapeGraph, error)`, implemented by every backend wrapper. The interface is query-shape agnostic: the gateway builds `GraphQuery.RawQuery` differently per backend (kube-state-graph receives the inbound query verbatim; switch receives `ip=…&ip=…`).
+The codebase SHALL define a single `GraphBackend` interface exposing `FetchGraph(ctx, GraphQuery) (*CytoscapeGraph, error)`, implemented by every backend wrapper. The interface is query-shape agnostic: the gateway builds `GraphQuery.RawQuery` differently per backend (kube-state-graph receives the inbound query verbatim; switch receives `ip=…&ip=…`). Backend identity (`"kube-state-graph"` vs `"switch"`) is encoded by concrete type, not by an interface method, and surfaces through the OTel transport's span attributes and per-stage log fields.
 
 #### Scenario: Both built-in clients satisfy the interface
 - **WHEN** the codebase is compiled
@@ -46,7 +46,7 @@ Each backend wrapper SHALL decode upstream responses into a typed `CytoscapeGrap
 - **THEN** that node's `Data.IPAddress` is `nil` or empty (never panics on access)
 
 ### Requirement: Two Built-In Backend Wrappers
-The codebase SHALL ship `KubeStateGraphClient` (primary, `Name() == "primary"`) and `SwitchGraphClient` (`Name() == "switch"`), both targeting a `/v1/graph` Cytoscape contract, each with an independently injected base URL.
+The codebase SHALL ship `KubeStateGraphClient` (kube-state-graph primary) and `SwitchGraphClient`, both targeting a `/v1/graph` Cytoscape contract, each with an independently injected base URL.
 
 #### Scenario: Each client uses its own base URL
 - **WHEN** `KubeStateGraphClient` is constructed with `baseURL=http://ksg:8080` and `SwitchGraphClient` with `baseURL=http://switchsvc:8080`

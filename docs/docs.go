@@ -264,6 +264,16 @@ const docTemplate = `{
                             }
                         },
                         "description": "ok"
+                    },
+                    "503": {
+                        "content": {
+                            "text/plain": {
+                                "schema": {
+                                    "type": "string"
+                                }
+                            }
+                        },
+                        "description": "not ready"
                     }
                 },
                 "summary": "Readiness probe",
@@ -369,6 +379,16 @@ const docTemplate = `{
                             }
                         },
                         "description": "Bad Gateway"
+                    },
+                    "504": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/internal_api.errorResponse"
+                                }
+                            }
+                        },
+                        "description": "Gateway Timeout"
                     }
                 },
                 "summary": "Merged kube + switch graph (Cytoscape.js)",

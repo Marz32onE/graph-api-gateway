@@ -322,6 +322,67 @@ func TestRequestIDMiddleware_GeneratesWhenMissing(t *testing.T) {
 	}
 }
 
+func TestValidRequestID(t *testing.T) {
+	cases := []struct {
+		name string
+		in   string
+		ok   bool
+	}{
+		{"empty", "", false},
+		{"simple uuid", "550e8400-e29b-41d4-a716-446655440000", true},
+		{"safe chars", "abc_DEF.123+xy:zz-", true},
+		{"with space", "abc def", false},
+		{"with newline", "abc\ndef", false},
+		{"with CR", "abc\rdef", false},
+		{"with NUL", "abc\x00def", false},
+		{"with slash", "abc/def", false},
+		{"at limit", strings.Repeat("a", 128), true},
+		{"over limit", strings.Repeat("a", 129), false},
+	}
+	for _, tc := range cases {
+		if got := validRequestID(tc.in); got != tc.ok {
+			t.Errorf("%s: validRequestID(%q) = %v, want %v", tc.name, tc.in, got, tc.ok)
+		}
+	}
+}
+
+func TestRequestIDMiddleware_RejectsMalformedInbound(t *testing.T) {
+	primary := newStub(t, primaryWithIPs, 200, nil)
+	swSrv := newStub(t, switchResponse, 200, nil)
+	s := newTestServer(t, primary.URL, swSrv.URL, io.Discard)
+
+	req := httptest.NewRequest("GET", "/v1/graph", nil)
+	req.Header.Set("X-Request-ID", "bad id with space")
+	w := httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, req)
+
+	got := w.Header().Get("X-Request-ID")
+	if got == "bad id with space" {
+		t.Fatalf("invalid inbound id should not be echoed, got %q", got)
+	}
+	if len(got) < 16 {
+		t.Errorf("generated fallback id too short: %q", got)
+	}
+}
+
+func TestReadyz_BackendUnreachable(t *testing.T) {
+	// primary stub is up; switch URL points at an unroutable address so its
+	// probe must fail within the 1.5s probe budget.
+	primary := newStub(t, primaryWithIPs, 200, nil)
+	s := newTestServer(t, primary.URL, "http://127.0.0.1:1", io.Discard)
+
+	req := httptest.NewRequest("GET", "/readyz", nil)
+	w := httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("want 503, got %d body=%q", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "switch") {
+		t.Errorf("body should name the failed backend, got %q", w.Body.String())
+	}
+}
+
 func TestHealth(t *testing.T) {
 	primary := newStub(t, primaryWithIPs, 200, nil)
 	swSrv := newStub(t, switchResponse, 200, nil)

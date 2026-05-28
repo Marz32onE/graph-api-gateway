@@ -47,6 +47,8 @@ func SetupTracing(ctx context.Context) (ShutdownFunc, error) {
 		),
 	)
 	if err != nil {
+		// Avoid leaking the exporter's background client/buffers.
+		_ = exp.Shutdown(ctx)
 		return nil, err
 	}
 

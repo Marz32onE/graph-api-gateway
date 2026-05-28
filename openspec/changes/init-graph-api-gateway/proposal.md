@@ -35,6 +35,6 @@ _None — greenfield repo._
 - **New Go module** `github.com/<org>/graph-api-gateway` (module path TBD in design).
 - **Dependencies**: `github.com/gin-gonic/gin`, `github.com/go-resty/resty/v2`, `go.opentelemetry.io/contrib/instrumentation/github.com/gin-gonic/gin/otelgin`, `go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp`, `go.opentelemetry.io/otel`, `go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp`, `go.opentelemetry.io/otel/sdk`. (`log/slog` is stdlib.)
 - **No upstream changes** to `kube-state-graph` — gateway consumes its public `/v1/graph` contract as-is.
-- **Switch backend**: client struct scaffolded against the Cytoscape envelope; queried with `?ip=…` parameters batched into a single call; concrete base URL injected via `BACKEND_SWITCH_URL`.
+- **Switch backend**: client struct scaffolded against the Cytoscape envelope; queried with `?ip=…` parameters batched into a single call; concrete base URL injected via `SWITCH_GRAPH_URL`.
 - **kube-state-graph dependency**: assumes the upstream contract has been extended so `node` and `pod` entries carry `data.ipaddress: []string` (tracked separately on the kube-state-graph side).
 - **Operational**: one new container/binary to deploy; expects two backend URLs reachable on the network; emits OTLP traces to whatever collector `OTEL_EXPORTER_OTLP_ENDPOINT` points at.

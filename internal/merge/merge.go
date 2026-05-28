@@ -12,9 +12,15 @@ import (
 // Nodes are unioned by data.id; on collision the first writer wins.
 // Edges are deduplicated by the (type, source, target) triple; on collision
 // the first writer wins. Inputs are not mutated; the returned graph is fresh.
+// edgeKey deduplicates edges by the (type, source, target) triple without
+// risking string-concat collisions when any field contains a separator char.
+type edgeKey struct {
+	Type, Source, Target string
+}
+
 func Merge(graphs ...*client.CytoscapeGraph) *client.CytoscapeGraph {
 	nodeIdx := map[string]int{}
-	edgeIdx := map[string]int{}
+	edgeIdx := map[edgeKey]int{}
 	out := &client.CytoscapeGraph{
 		APIVersion: "v1",
 		Elements: client.Elements{
@@ -40,7 +46,7 @@ func Merge(graphs ...*client.CytoscapeGraph) *client.CytoscapeGraph {
 			out.Elements.Nodes = append(out.Elements.Nodes, n)
 		}
 		for _, e := range g.Elements.Edges {
-			key := e.Data.Type + "|" + e.Data.Source + "|" + e.Data.Target
+			key := edgeKey{Type: e.Data.Type, Source: e.Data.Source, Target: e.Data.Target}
 			if _, dup := edgeIdx[key]; dup {
 				continue
 			}

@@ -59,6 +59,31 @@ func TestLoad(t *testing.T) {
 			wantErrSubstr: "must not contain a query or fragment",
 		},
 		{
+			name: "non-http scheme is rejected",
+			env: map[string]string{
+				"KUBE_STATE_GRAPH_URL": "ftp://a:8080",
+				"SWITCH_GRAPH_URL":     "http://b:8080",
+			},
+			wantErrSubstr: "scheme must be http or https",
+		},
+		{
+			name: "userinfo in url is rejected",
+			env: map[string]string{
+				"KUBE_STATE_GRAPH_URL": "http://user:pass@a:8080",
+				"SWITCH_GRAPH_URL":     "http://b:8080",
+			},
+			wantErrSubstr: "must not embed userinfo",
+		},
+		{
+			name: "non-positive timeout is rejected",
+			env: map[string]string{
+				"KUBE_STATE_GRAPH_URL":     "http://a:8080",
+				"KUBE_STATE_GRAPH_TIMEOUT": "0s",
+				"SWITCH_GRAPH_URL":         "http://b:8080",
+			},
+			wantErrSubstr: "must be > 0",
+		},
+		{
 			name: "invalid timeout",
 			env: map[string]string{
 				"KUBE_STATE_GRAPH_URL":     "http://a:8080",

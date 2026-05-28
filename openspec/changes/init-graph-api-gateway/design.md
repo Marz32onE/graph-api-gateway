@@ -94,10 +94,11 @@ graph-api-gateway/
 
 ```go
 type GraphBackend interface {
-    Name() string                                      // "primary" | "switch" — for span attrs / log fields
     FetchGraph(ctx context.Context, q GraphQuery) (*CytoscapeGraph, error)
 }
 ```
+
+Backend identity (`kube-state-graph` vs `switch`) is encoded by concrete struct type and surfaces through (a) the `otelhttp` transport's span name / `http.url` attributes and (b) per-stage log fields (`s.logger.ErrorContext(ctx, "ksg fetch failed", …)` / `"switch fetch failed"`). No `Name()` method on the interface keeps it minimal and avoids forcing every future backend to declare a string tag.
 
 `KubeStateGraphClient` and `SwitchGraphClient` are independent structs, each constructed with `(baseURL, apiKey, timeout)`. Both issue `GET <baseURL>/v1/graph?<rawQuery>`; the difference is **what the caller puts in `rawQuery`** — the gateway forwards the inbound query verbatim to primary and synthesises `ip=…&ip=…` for switch. The interface itself stays query-shape agnostic.
 
@@ -135,33 +136,32 @@ Both client structs accept this configured `*resty.Client`. `otelhttp` injects `
 ### D4. Merge algorithm — union by node id, edge dedup by (source,target,type)
 
 ```go
-func Merge(graphs ...*CytoscapeGraph) (*CytoscapeGraph, []Warning) {
-    nodes := map[string]Node{}           // first-writer-wins on id
-    edges := map[string]Edge{}           // key = type|source|target, first-writer-wins
-    var warnings []Warning
-    for i, g := range graphs {
+type edgeKey struct{ Type, Source, Target string }
+
+func Merge(graphs ...*CytoscapeGraph) *CytoscapeGraph {
+    nodes := map[string]Node{}        // first-writer-wins on id
+    edges := map[edgeKey]Edge{}       // first-writer-wins on (type,source,target)
+    for _, g := range graphs {
         if g == nil { continue }
         for _, n := range g.Elements.Nodes {
             if _, dup := nodes[n.Data.ID]; !dup { nodes[n.Data.ID] = n }
-            // else: optionally record a warning if labels diverge — gated by config
         }
         for _, e := range g.Elements.Edges {
-            key := e.Data.Type + "|" + e.Data.Source + "|" + e.Data.Target
-            if _, dup := edges[key]; !dup { edges[key] = e }
+            k := edgeKey{e.Data.Type, e.Data.Source, e.Data.Target}
+            if _, dup := edges[k]; !dup { edges[k] = e }
         }
-        _ = i
     }
-    return assemble(nodes, edges), warnings
+    return assemble(nodes, edges)
 }
 ```
 
 **Rules**:
-- Node id collision → **first-writer-wins** (primary backend takes precedence). This matches the proposal's "merge by node id" and is deterministic given a fixed backend order.
-- Edge key is `type|source|target` (not the backend's UUIDv5 `id`, which differs per source). This collapses true duplicates while preserving structurally distinct edges.
+- Node id collision → **first-writer-wins** (kube-state-graph takes precedence). Deterministic given the fixed (kube, reconciled-switch) call order.
+- Edge dedup uses a typed struct key `(type, source, target)` (not the backend's UUIDv5 `id`, which differs per source). This collapses true duplicates while preserving structurally distinct edges; using a struct key (vs concatenated string) avoids collisions if any field ever contains a separator char.
 - Output is a fresh struct; inputs are not mutated (immutability rule).
-- Output cluster list (top-level `clusters`) is the sorted union of both inputs' cluster fields when present.
+- Output `clusters` is the sorted union of every input graph's `clusters` field. To preserve switch-only clusters end-to-end, `ReconcileSwitch` passes `switchGraph.Clusters` through into its returned graph (defensive copy) before `Merge` unions them with the kube side.
 
-**Why first-writer-wins**: deterministic, debuggable, no schema-aware diffing required. If we ever need conflict reporting we add it as warnings without changing the merge invariant.
+**Why first-writer-wins**: deterministic, debuggable, no schema-aware diffing required. The `warnings[]` field that earlier drafts proposed is explicitly dropped (see Non-Goals): any backend failure produces an HTTP error, not a partial-success body.
 
 **Alternatives considered**: last-writer-wins (rejected, less intuitive — primary is the "trusted" source); deep-merge of labels (rejected for v1, opens up semantic questions about who owns which label namespace).
 
@@ -256,15 +256,15 @@ Env only, parsed with stdlib `os.Getenv` (no `flag`, no Viper).
 | `LISTEN_ADDR` | `:8080` | HTTP listen address |
 | `LOG_LEVEL` | `info` | `debug \| info \| warn \| error` |
 | `LOG_FORMAT` | `json` | `json \| text` |
-| `BACKEND_PRIMARY_URL` | _required_ | kube-state-graph base URL |
-| `BACKEND_PRIMARY_API_KEY` | `""` | forwarded as `X-API-Key` |
-| `BACKEND_PRIMARY_TIMEOUT` | `10s` | per-call timeout |
-| `BACKEND_SWITCH_URL` | _required_ | switch backend base URL |
-| `BACKEND_SWITCH_API_KEY` | `""` | as above |
-| `BACKEND_SWITCH_TIMEOUT` | `10s` | as above |
+| `KUBE_STATE_GRAPH_URL` | _required_ | kube-state-graph base URL |
+| `KUBE_STATE_GRAPH_API_KEY` | `""` | forwarded as `X-API-Key` |
+| `KUBE_STATE_GRAPH_TIMEOUT` | `10s` | per-call timeout |
+| `SWITCH_GRAPH_URL` | _required_ | switch backend base URL |
+| `SWITCH_GRAPH_API_KEY` | `""` | as above |
+| `SWITCH_GRAPH_TIMEOUT` | `10s` | as above |
 | `OTEL_*` | stdlib OTel env | standard OTLP exporter config |
 
-Startup validation: either `BACKEND_*_URL` empty → fail fast.
+Env keys are named after the upstream domain (not its pipeline role) so a future second-tier switch or alternative kube source can be added without renaming the existing ones. Startup validation: either `*_URL` empty → fail fast naming the missing key.
 
 ### D9. IP extraction, switch query, and ID reconciliation
 
@@ -356,9 +356,9 @@ return out
 ## Migration Plan
 
 Greenfield repo — no migration. Rollout:
-1. Land `cmd/`, `internal/`, `api/openapi.yaml`, Makefile, Dockerfile.
+1. Land `cmd/`, `internal/`, generated `docs/swagger.{yaml,json}` + embedded copies in `internal/api/static/openapi/`, Makefile, Dockerfile.
 2. Wire CI: `go test ./...`, `go vet`, `golangci-lint`, `make check-docs`.
-3. Local: `local/docker-compose.yaml` spins up gateway + `kube-state-graph` + a stub secondary + an OTel collector → trace and merged response verifiable end-to-end.
+3. Local: `local/docker-compose.yaml` spins up gateway + `stub-ksg` + `stub-switch` + an OTel collector → trace and merged response verifiable end-to-end.
 4. Promote to staging once `/v1/graph` returns a merged Cytoscape payload with both backends reachable.
 
 Rollback: standalone service, drop the deployment. Backends are untouched.
