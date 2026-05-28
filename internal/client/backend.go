@@ -17,9 +17,9 @@ type GraphQuery struct {
 // CytoscapeGraph is the standard Cytoscape.js envelope returned by the kube-state-graph
 // /v1/graph contract.
 type CytoscapeGraph struct {
-	APIVersion string    `json:"apiVersion"`
-	Clusters   []string  `json:"clusters,omitempty"`
-	Elements   Elements  `json:"elements"`
+	APIVersion string   `json:"apiVersion"`
+	Clusters   []string `json:"clusters,omitempty"`
+	Elements   Elements `json:"elements"`
 }
 
 // Elements holds the typed node and edge slices.
