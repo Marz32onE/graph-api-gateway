@@ -12,8 +12,8 @@ import (
 )
 
 // graphPath is the relative path appended to every backend's baseURL.
-// Both KubeStateGraphClient and SwitchGraphClient hit this single endpoint
-// shape; centralising avoids drift if either upstream renames its route.
+// Both backends hit this single endpoint shape; centralising avoids drift if
+// either upstream renames its route.
 const graphPath = "/v1/graph"
 
 // maxErrBodyExcerpt caps how many bytes of an upstream response body are
@@ -24,31 +24,41 @@ const maxErrBodyExcerpt = 256
 // upstream backends for reachability.
 const probePath = "/livez"
 
-// KubeStateGraphClient wraps the upstream kube-state-graph /v1/graph contract.
-type KubeStateGraphClient struct {
+// GraphClient is a resty-backed client for any upstream that speaks the
+// /v1/graph Cytoscape contract. kube-state-graph and the switch backend share
+// identical transport behaviour — the only difference is the query string the
+// caller forwards (raw inbound query vs. a synthesised `ip=...` set), which is
+// the caller's concern. Construct one with NewKubeStateGraphClient or
+// NewSwitchGraphClient.
+type GraphClient struct {
 	resty   *resty.Client
 	baseURL string
 }
 
-var _ GraphBackend = (*KubeStateGraphClient)(nil)
+var _ GraphBackend = (*GraphClient)(nil)
 
-// NewKubeStateGraphClient constructs the kube-state-graph wrapper.
-func NewKubeStateGraphClient(baseURL, apiKey string, timeout time.Duration) *KubeStateGraphClient {
-	return &KubeStateGraphClient{
+// NewKubeStateGraphClient constructs a client for the kube-state-graph
+// /v1/graph contract.
+func NewKubeStateGraphClient(baseURL, apiKey string, timeout time.Duration) *GraphClient {
+	return newGraphClient(baseURL, apiKey, timeout)
+}
+
+func newGraphClient(baseURL, apiKey string, timeout time.Duration) *GraphClient {
+	return &GraphClient{
 		baseURL: baseURL,
 		resty:   newRestyClient(apiKey, timeout),
 	}
 }
 
 // FetchGraph issues GET {baseURL}{graphPath}?{rawQuery}.
-func (c *KubeStateGraphClient) FetchGraph(ctx context.Context, q GraphQuery) (*CytoscapeGraph, error) {
+func (c *GraphClient) FetchGraph(ctx context.Context, q GraphQuery) (*CytoscapeGraph, error) {
 	return fetchGraph(ctx, c.resty, c.baseURL, q)
 }
 
 // Probe checks that the backend is reachable, used by /readyz. Any HTTP
 // response (including 404 or 405) is treated as "reachable"; only transport
 // errors and 5xx are considered failures.
-func (c *KubeStateGraphClient) Probe(ctx context.Context) error {
+func (c *GraphClient) Probe(ctx context.Context) error {
 	return probeBackend(ctx, c.resty, c.baseURL)
 }
 

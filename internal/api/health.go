@@ -33,20 +33,25 @@ func (s *Server) handleLivez(c *gin.Context) {
 //	@Failure	503	{string}	string	"not ready"
 //	@Router		/readyz [get]
 func (s *Server) handleReadyz(c *gin.Context) {
-	if err := s.probe(c.Request.Context(), "ksg", s.ksg.Probe); err != nil {
-		s.logger.WarnContext(c.Request.Context(), "readyz ksg probe failed", "err", err.Error())
-		c.String(http.StatusServiceUnavailable, "not ready: ksg")
-		return
+	ctx := c.Request.Context()
+	backends := []struct {
+		name  string
+		probe func(context.Context) error
+	}{
+		{"ksg", s.ksg.Probe},
+		{"switch", s.switchClient.Probe},
 	}
-	if err := s.probe(c.Request.Context(), "switch", s.switchClient.Probe); err != nil {
-		s.logger.WarnContext(c.Request.Context(), "readyz switch probe failed", "err", err.Error())
-		c.String(http.StatusServiceUnavailable, "not ready: switch")
-		return
+	for _, b := range backends {
+		if err := s.probe(ctx, b.probe); err != nil {
+			s.logger.WarnContext(ctx, "readyz probe failed", "backend", b.name, "err", err.Error())
+			c.String(http.StatusServiceUnavailable, "not ready: "+b.name)
+			return
+		}
 	}
 	c.String(http.StatusOK, "ok")
 }
 
-func (s *Server) probe(ctx context.Context, _ string, fn func(context.Context) error) error {
+func (s *Server) probe(ctx context.Context, fn func(context.Context) error) error {
 	pctx, cancel := context.WithTimeout(ctx, probeTimeout)
 	defer cancel()
 	return fn(pctx)

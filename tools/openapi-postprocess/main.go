@@ -109,10 +109,7 @@ func mutateParameters(doc map[string]any) {
 					pm["schema"] = schema
 				}
 				name, _ := pm["name"].(string)
-				isArray := false
-				if t, _ := schema["type"].(string); t == "array" {
-					isArray = true
-				}
+				isArray := schema["type"] == "array"
 				if isArray {
 					if multi, ok := multiValueExamples[name]; ok {
 						schema["example"] = multi

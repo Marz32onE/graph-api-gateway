@@ -1,6 +1,10 @@
 package pipeline
 
-import "github.com/marz32one/graph-api-gateway/internal/client"
+import (
+	"slices"
+
+	"github.com/marz32one/graph-api-gateway/internal/client"
+)
 
 // ReconcileSwitch re-anchors the switch graph onto primary's K8s node IDs by
 // matching shared data.ipaddress values. See design.md D9.
@@ -20,14 +24,18 @@ func ReconcileSwitch(primary, switchGraph *client.CytoscapeGraph) *client.Cytosc
 		return nil
 	}
 
-	ipToNodeID := map[string]string{}
+	primaryNodes := 0
+	if primary != nil {
+		primaryNodes = len(primary.Elements.Nodes)
+	}
+	ipToNodeID := make(map[string]string, primaryNodes)
 	iterNodeIPs(primary, func(nodeID, ip string) {
 		if _, dup := ipToNodeID[ip]; !dup {
 			ipToNodeID[ip] = nodeID
 		}
 	})
 
-	rewrite := map[string]string{}
+	rewrite := make(map[string]string, len(switchGraph.Elements.Nodes))
 	for _, n := range switchGraph.Elements.Nodes {
 		for _, ip := range n.Data.IPAddress {
 			if kid, ok := ipToNodeID[ip]; ok {
@@ -37,13 +45,9 @@ func ReconcileSwitch(primary, switchGraph *client.CytoscapeGraph) *client.Cytosc
 		}
 	}
 
-	// Clusters are passed through so Merge can union switch-only clusters
-	// with the kube side. Defensive copy keeps the "inputs are not mutated"
-	// contract intact.
-	var clusters []string
-	if len(switchGraph.Clusters) > 0 {
-		clusters = append(clusters, switchGraph.Clusters...)
-	}
+	// Clusters are passed through so Merge can union switch-only clusters with
+	// the kube side. slices.Clone keeps the "inputs are not mutated" contract.
+	clusters := slices.Clone(switchGraph.Clusters)
 	out := &client.CytoscapeGraph{
 		APIVersion: switchGraph.APIVersion,
 		Clusters:   clusters,

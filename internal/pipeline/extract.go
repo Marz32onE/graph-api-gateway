@@ -36,8 +36,12 @@ func iterNodeIPs(g *client.CytoscapeGraph, fn func(nodeID, ip string)) {
 // non-nil empty slice when g is nil or contains no eligible entries. Does not
 // mutate the input.
 func ExtractIPs(g *client.CytoscapeGraph) []string {
-	out := []string{}
-	seen := map[string]struct{}{}
+	n := 0
+	if g != nil {
+		n = len(g.Elements.Nodes)
+	}
+	out := make([]string, 0, n)
+	seen := make(map[string]struct{}, n)
 	iterNodeIPs(g, func(_, ip string) {
 		if _, dup := seen[ip]; dup {
 			return
