@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"net/http"
-	"net/url"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -18,7 +17,7 @@ import (
 // primary fetch → IP extraction → conditional switch fetch → reconciliation → merge.
 //
 //	@Summary		Merged kube + switch graph (Cytoscape.js)
-//	@Description	Runs a sequential pipeline: (1) forward the inbound query to kube-state-graph and parse the Cytoscape response; (2) collect `data.ipaddress` from every `node`-type entry; (3) if any IPs were collected, call the switch backend as `GET /v1/graph?ip=<a>&ip=<b>...`; (4) re-anchor the switch graph onto kube node IDs by matching `data.ipaddress` (switch shadow nodes are dropped, their edge references rewritten); (5) merge primary + reconciled switch (union nodes by `data.id` with kube winning, dedup edges by `(type,source,target)`). Any stage failure returns `502`.
+//	@Description	Runs a sequential pipeline: (1) forward the inbound query to kube-state-graph and parse the Cytoscape response; (2) collect `data.ipaddress` from every `node`-type entry; (3) if any IPs were collected, call the switch backend as `POST /v1/graph` with a JSON body `[{"ip":"<a>"},{"ip":"<b>"}]` (all IPs batched into one request); (4) re-anchor the switch graph onto kube node IDs by matching `data.ipaddress` (switch shadow nodes are dropped, their edge references rewritten); (5) merge primary + reconciled switch (union nodes by `data.id` with kube winning, dedup edges by `(type,source,target)`). Any stage failure returns `502`.
 //	@Tags			graph
 //	@Produce		json
 //	@Param			start		query		string	false	"Window start (RFC 3339 or Unix seconds) — forwarded to kube-state-graph"
@@ -37,13 +36,18 @@ import (
 func (s *Server) handleGraph(c *gin.Context) {
 	ctx := c.Request.Context()
 
-	fetch := func(timeout time.Duration, b client.GraphBackend, q client.GraphQuery) (*client.CytoscapeGraph, error) {
+	// withTimeout runs one pipeline stage under a per-stage deadline derived
+	// from the inbound request context, so a slow backend cannot stall the
+	// whole request beyond its configured budget.
+	withTimeout := func(timeout time.Duration, fn func(context.Context) (*client.CytoscapeGraph, error)) (*client.CytoscapeGraph, error) {
 		stageCtx, cancel := context.WithTimeout(ctx, timeout)
 		defer cancel()
-		return b.FetchGraph(stageCtx, q)
+		return fn(stageCtx)
 	}
 
-	ksgGraph, err := fetch(s.cfg.KSG.Timeout, s.ksg, client.GraphQuery{RawQuery: c.Request.URL.RawQuery})
+	ksgGraph, err := withTimeout(s.cfg.KSG.Timeout, func(stageCtx context.Context) (*client.CytoscapeGraph, error) {
+		return s.ksg.FetchGraph(stageCtx, client.GraphQuery{RawQuery: c.Request.URL.RawQuery})
+	})
 	if err != nil {
 		s.writeFetchError(c, "ksg fetch failed", err)
 		return
@@ -53,7 +57,9 @@ func (s *Server) handleGraph(c *gin.Context) {
 
 	var switchGraph *client.CytoscapeGraph
 	if len(ips) > 0 {
-		switchGraph, err = fetch(s.cfg.Switch.Timeout, s.switchClient, client.GraphQuery{RawQuery: buildIPQuery(ips)})
+		switchGraph, err = withTimeout(s.cfg.Switch.Timeout, func(stageCtx context.Context) (*client.CytoscapeGraph, error) {
+			return s.switchClient.FetchGraphByIPs(stageCtx, ips)
+		})
 		if err != nil {
 			s.writeFetchError(c, "switch fetch failed", err)
 			return
@@ -85,11 +91,6 @@ func (s *Server) writeFetchError(c *gin.Context, msg string, err error) {
 	}
 	s.logger.ErrorContext(ctx, msg, "err", err.Error())
 	c.JSON(http.StatusBadGateway, errorResponse{Error: "upstream_unavailable"})
-}
-
-// buildIPQuery encodes ips as `ip=<a>&ip=<b>&...` with proper URL escaping.
-func buildIPQuery(ips []string) string {
-	return url.Values{"ip": ips}.Encode()
 }
 
 // errorResponse is the gateway's error envelope.

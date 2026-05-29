@@ -3,7 +3,9 @@ package client
 
 import "context"
 
-// GraphBackend is the contract implemented by every concrete client.
+// GraphBackend is the GET-query contract for a /v1/graph backend. It is
+// satisfied by KubeStateGraphClient (the switch backend uses a POST body via
+// SwitchGraphClient.FetchGraphByIPs and does not implement this interface).
 type GraphBackend interface {
 	FetchGraph(ctx context.Context, q GraphQuery) (*CytoscapeGraph, error)
 }

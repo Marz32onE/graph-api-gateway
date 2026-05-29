@@ -4,6 +4,12 @@
 # returns a shadow keyed on that same IP plus a switch chassis + edge — so the
 # end-to-end pipeline (extract → switch fetch → reconcile → merge) is exercised.
 #
+# The gateway queries the switch backend with `POST /v1/graph` whose body is the
+# batched IP list `[{"ip":"10.0.0.1"}]`. The switch stub here is a static Caddy
+# responder: it answers any method (incl. POST) with the fixed body below and
+# ignores the request body — enough to exercise the pipeline locally. Swap it for
+# a body-parsing mock if you need the response to vary with the posted IPs.
+#
 # Usage:
 #   docker compose -f local/docker-compose.yaml up --build
 #

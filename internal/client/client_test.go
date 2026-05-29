@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -73,7 +74,7 @@ func TestClient_MalformedJSON(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	c := NewSwitchGraphClient(srv.URL, "", 5*time.Second)
+	c := NewKubeStateGraphClient(srv.URL, "", 5*time.Second)
 	_, err := c.FetchGraph(context.Background(), GraphQuery{})
 	if err == nil {
 		t.Fatal("want error on malformed JSON, got nil")
@@ -86,7 +87,7 @@ func TestClient_MissingElementsBecomesEmpty(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	c := NewSwitchGraphClient(srv.URL, "", 5*time.Second)
+	c := NewKubeStateGraphClient(srv.URL, "", 5*time.Second)
 	g, err := c.FetchGraph(context.Background(), GraphQuery{})
 	if err != nil {
 		t.Fatalf("fetch: %v", err)
@@ -159,20 +160,41 @@ func TestClient_PropagatesTraceparent(t *testing.T) {
 	}
 }
 
-func TestSwitchClient_ForwardsIPQuery(t *testing.T) {
-	var gotQuery string
+func TestSwitchClient_PostsIPBody(t *testing.T) {
+	var (
+		gotMethod, gotPath, gotCT, gotAPIKey string
+		gotBody                              []map[string]string
+	)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotQuery = r.URL.RawQuery
+		gotMethod = r.Method
+		gotPath = r.URL.Path
+		gotCT = r.Header.Get("Content-Type")
+		gotAPIKey = r.Header.Get("X-API-Key")
+		_ = json.NewDecoder(r.Body).Decode(&gotBody)
+		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"apiVersion":"v1","elements":{"nodes":[],"edges":[]}}`))
 	}))
 	t.Cleanup(srv.Close)
 
-	c := NewSwitchGraphClient(srv.URL, "", 5*time.Second)
-	if _, err := c.FetchGraph(context.Background(), GraphQuery{RawQuery: "ip=10.0.0.1&ip=10.0.0.2"}); err != nil {
+	c := NewSwitchGraphClient(srv.URL, "switch-key", 5*time.Second)
+	if _, err := c.FetchGraphByIPs(context.Background(), []string{"10.0.0.1", "10.0.0.2"}); err != nil {
 		t.Fatalf("fetch: %v", err)
 	}
-	if gotQuery != "ip=10.0.0.1&ip=10.0.0.2" {
-		t.Errorf("want verbatim ip query, got %q", gotQuery)
+	if gotMethod != http.MethodPost {
+		t.Errorf("method: want POST, got %s", gotMethod)
+	}
+	if gotPath != "/v1/graph" {
+		t.Errorf("path: want /v1/graph, got %s", gotPath)
+	}
+	if !strings.Contains(gotCT, "application/json") {
+		t.Errorf("content-type: want application/json, got %q", gotCT)
+	}
+	if gotAPIKey != "switch-key" {
+		t.Errorf("X-API-Key: want switch-key, got %q", gotAPIKey)
+	}
+	want := []map[string]string{{"ip": "10.0.0.1"}, {"ip": "10.0.0.2"}}
+	if !reflect.DeepEqual(gotBody, want) {
+		t.Errorf("body: want %v, got %v", want, gotBody)
 	}
 }
 

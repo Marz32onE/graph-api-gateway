@@ -24,42 +24,48 @@ const maxErrBodyExcerpt = 256
 // upstream backends for reachability.
 const probePath = "/livez"
 
-// GraphClient is a resty-backed client for any upstream that speaks the
-// /v1/graph Cytoscape contract. kube-state-graph and the switch backend share
-// identical transport behaviour — the only difference is the query string the
-// caller forwards (raw inbound query vs. a synthesised `ip=...` set), which is
-// the caller's concern. Construct one with NewKubeStateGraphClient or
-// NewSwitchGraphClient.
-type GraphClient struct {
+// graphClient is the shared resty-backed transport core for both upstream
+// backends. kube-state-graph and the switch backend speak the same /v1/graph
+// Cytoscape contract and share identical transport behaviour (otelhttp
+// instrumentation, optional X-API-Key, per-call timeout, /livez probe); they
+// differ only in request shape, so each is exposed as its own thin type
+// (KubeStateGraphClient, SwitchGraphClient) embedding this core.
+type graphClient struct {
 	resty   *resty.Client
 	baseURL string
 }
 
-var _ GraphBackend = (*GraphClient)(nil)
-
-// NewKubeStateGraphClient constructs a client for the kube-state-graph
-// /v1/graph contract.
-func NewKubeStateGraphClient(baseURL, apiKey string, timeout time.Duration) *GraphClient {
-	return newGraphClient(baseURL, apiKey, timeout)
-}
-
-func newGraphClient(baseURL, apiKey string, timeout time.Duration) *GraphClient {
-	return &GraphClient{
+func newGraphClient(baseURL, apiKey string, timeout time.Duration) *graphClient {
+	return &graphClient{
 		baseURL: baseURL,
 		resty:   newRestyClient(apiKey, timeout),
 	}
 }
 
-// FetchGraph issues GET {baseURL}{graphPath}?{rawQuery}.
-func (c *GraphClient) FetchGraph(ctx context.Context, q GraphQuery) (*CytoscapeGraph, error) {
-	return fetchGraph(ctx, c.resty, c.baseURL, q)
-}
-
 // Probe checks that the backend is reachable, used by /readyz. Any HTTP
 // response (including 404 or 405) is treated as "reachable"; only transport
-// errors and 5xx are considered failures.
-func (c *GraphClient) Probe(ctx context.Context) error {
+// errors and 5xx are considered failures. Shared by both backends.
+func (c *graphClient) Probe(ctx context.Context) error {
 	return probeBackend(ctx, c.resty, c.baseURL)
+}
+
+// KubeStateGraphClient queries the kube-state-graph primary, which receives the
+// inbound query verbatim over GET via FetchGraph.
+type KubeStateGraphClient struct {
+	*graphClient
+}
+
+var _ GraphBackend = (*KubeStateGraphClient)(nil)
+
+// NewKubeStateGraphClient constructs a client for the kube-state-graph
+// /v1/graph contract.
+func NewKubeStateGraphClient(baseURL, apiKey string, timeout time.Duration) *KubeStateGraphClient {
+	return &KubeStateGraphClient{newGraphClient(baseURL, apiKey, timeout)}
+}
+
+// FetchGraph issues GET {baseURL}{graphPath}?{rawQuery}.
+func (c *KubeStateGraphClient) FetchGraph(ctx context.Context, q GraphQuery) (*CytoscapeGraph, error) {
+	return fetchGraph(ctx, c.resty, c.baseURL, q)
 }
 
 func newRestyClient(apiKey string, timeout time.Duration) *resty.Client {
@@ -73,7 +79,9 @@ func newRestyClient(apiKey string, timeout time.Duration) *resty.Client {
 	return r
 }
 
-// fetchGraph is shared by both built-in clients.
+// fetchGraph issues GET {baseURL}{graphPath}?{rawQuery} and decodes the
+// Cytoscape response. Used by kube-state-graph, which receives the inbound
+// query verbatim.
 func fetchGraph(ctx context.Context, r *resty.Client, baseURL string, q GraphQuery) (*CytoscapeGraph, error) {
 	target := baseURL + graphPath
 	if q.RawQuery != "" {
@@ -85,16 +93,39 @@ func fetchGraph(ctx context.Context, r *resty.Client, baseURL string, q GraphQue
 	if err != nil {
 		return nil, fmt.Errorf("client: GET %s: %w", target, err)
 	}
+	return decodeGraphResponse(resp, "GET "+target)
+}
+
+// postGraph issues POST {baseURL}{graphPath} with a JSON-encoded body and
+// decodes the Cytoscape response. Used by the switch backend, which is queried
+// with a batched IP list (see switch.go) rather than a query string.
+func postGraph(ctx context.Context, r *resty.Client, baseURL string, body any) (*CytoscapeGraph, error) {
+	target := baseURL + graphPath
+	resp, err := r.R().
+		SetContext(ctx).
+		SetHeader("Content-Type", "application/json").
+		SetBody(body).
+		Post(target)
+	if err != nil {
+		return nil, fmt.Errorf("client: POST %s: %w", target, err)
+	}
+	return decodeGraphResponse(resp, "POST "+target)
+}
+
+// decodeGraphResponse validates an upstream response and decodes it into a
+// CytoscapeGraph, normalising nil node/edge slices to empty so callers never
+// panic on access. reqDesc is the "<METHOD> <url>" label used in error messages.
+func decodeGraphResponse(resp *resty.Response, reqDesc string) (*CytoscapeGraph, error) {
 	if resp.IsError() {
 		body := truncate(resp.String(), maxErrBodyExcerpt)
-		return nil, fmt.Errorf("client: %s returned %d: %s", target, resp.StatusCode(), body)
+		return nil, fmt.Errorf("client: %s returned %d: %s", reqDesc, resp.StatusCode(), body)
 	}
 	if len(resp.Body()) == 0 {
 		return nil, errors.New("client: empty response body")
 	}
 	out := &CytoscapeGraph{}
 	if err := json.Unmarshal(resp.Body(), out); err != nil {
-		return nil, fmt.Errorf("client: decode %s: %w (body: %s)", target, err, truncate(resp.String(), maxErrBodyExcerpt))
+		return nil, fmt.Errorf("client: decode %s: %w (body: %s)", reqDesc, err, truncate(resp.String(), maxErrBodyExcerpt))
 	}
 	if out.Elements.Nodes == nil {
 		out.Elements.Nodes = []Node{}

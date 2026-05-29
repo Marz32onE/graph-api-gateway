@@ -2,7 +2,7 @@
 //
 //	@title			graph-api-gateway
 //	@version		v1
-//	@description	HTTP gateway that runs a sequential pipeline: (1) fetch the kube-state-graph response with the inbound query, (2) extract `data.ipaddress` from every `node`-type entry, (3) if any IPs were collected, fetch the switch backend with those IPs batched as `?ip=…`, (4) re-anchor switch shadow nodes onto kube node IDs via IP match, (5) merge into a single Cytoscape.js envelope. Propagates W3C trace context end-to-end and emits structured logs via slog. Any backend failure returns `502`.
+//	@description	HTTP gateway that runs a sequential pipeline: (1) fetch the kube-state-graph response with the inbound query, (2) extract `data.ipaddress` from every `node`-type entry, (3) if any IPs were collected, POST those IPs to the switch backend batched as a single `[{"ip":…}]` JSON body, (4) re-anchor switch shadow nodes onto kube node IDs via IP match, (5) merge into a single Cytoscape.js envelope. Propagates W3C trace context end-to-end and emits structured logs via slog. Any backend failure returns `502`.
 //	@BasePath		/
 //	@schemes		http https
 package main

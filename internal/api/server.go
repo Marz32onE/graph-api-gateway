@@ -17,12 +17,12 @@ type Server struct {
 	engine       *gin.Engine
 	logger       *slog.Logger
 	cfg          *config.Config
-	ksg          *client.GraphClient
-	switchClient *client.GraphClient
+	ksg          *client.KubeStateGraphClient
+	switchClient *client.SwitchGraphClient
 }
 
 // New constructs a Server with all routes and middleware wired.
-func New(cfg *config.Config, logger *slog.Logger, ksg *client.GraphClient, switchClient *client.GraphClient) *Server {
+func New(cfg *config.Config, logger *slog.Logger, ksg *client.KubeStateGraphClient, switchClient *client.SwitchGraphClient) *Server {
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.New()
 

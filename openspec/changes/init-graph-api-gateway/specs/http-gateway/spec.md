@@ -39,11 +39,11 @@ The service SHALL expose `GET /v1/graph` that runs a two-stage sequential pipeli
 #### Scenario: Inbound query string is forwarded to primary only
 - **WHEN** the gateway receives `GET /v1/graph?cluster=prod&namespace=ns1`
 - **THEN** the primary backend receives query string `cluster=prod&namespace=ns1` verbatim
-- **AND** the switch backend (if called) receives ONLY `ip=<ip>` parameters derived from the primary response, with none of the inbound parameters forwarded
+- **AND** the switch backend (if called) receives ONLY the extracted IPs in its `[{"ip":…}]` POST body, with none of the inbound parameters forwarded
 
 #### Scenario: Switch backend receives the extracted IP set
 - **WHEN** the primary returns entries with `data.ipaddress` values `["10.0.0.1"]`, `["10.0.0.2","10.0.0.3"]`, and `[]`
-- **THEN** the gateway issues exactly one `GET` to the switch backend with query string containing one `ip=` parameter per distinct IP (`ip=10.0.0.1&ip=10.0.0.2&ip=10.0.0.3`)
+- **THEN** the gateway issues exactly one `POST /v1/graph` to the switch backend with body `[{"ip":"10.0.0.1"},{"ip":"10.0.0.2"},{"ip":"10.0.0.3"}]` (one object per distinct IP)
 - **AND** duplicate IPs appearing across multiple entries are deduplicated before the call
 
 ### Requirement: Health Endpoints

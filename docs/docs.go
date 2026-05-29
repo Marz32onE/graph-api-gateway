@@ -284,7 +284,7 @@ const docTemplate = `{
         },
         "/v1/graph": {
             "get": {
-                "description": "Runs a sequential pipeline: (1) forward the inbound query to kube-state-graph and parse the Cytoscape response; (2) collect ` + "`" + `data.ipaddress` + "`" + ` from every ` + "`" + `node` + "`" + `-type entry; (3) if any IPs were collected, call the switch backend as ` + "`" + `GET /v1/graph?ip=\u003ca\u003e\u0026ip=\u003cb\u003e...` + "`" + `; (4) re-anchor the switch graph onto kube node IDs by matching ` + "`" + `data.ipaddress` + "`" + ` (switch shadow nodes are dropped, their edge references rewritten); (5) merge primary + reconciled switch (union nodes by ` + "`" + `data.id` + "`" + ` with kube winning, dedup edges by ` + "`" + `(type,source,target)` + "`" + `). Any stage failure returns ` + "`" + `502` + "`" + `.",
+                "description": "Runs a sequential pipeline: (1) forward the inbound query to kube-state-graph and parse the Cytoscape response; (2) collect ` + "`" + `data.ipaddress` + "`" + ` from every ` + "`" + `node` + "`" + `-type entry; (3) if any IPs were collected, call the switch backend as ` + "`" + `POST /v1/graph` + "`" + ` with a JSON body ` + "`" + `[{\"ip\":\"\u003ca\u003e\"},{\"ip\":\"\u003cb\u003e\"}]` + "`" + ` (all IPs batched into one request); (4) re-anchor the switch graph onto kube node IDs by matching ` + "`" + `data.ipaddress` + "`" + ` (switch shadow nodes are dropped, their edge references rewritten); (5) merge primary + reconciled switch (union nodes by ` + "`" + `data.id` + "`" + ` with kube winning, dedup edges by ` + "`" + `(type,source,target)` + "`" + `). Any stage failure returns ` + "`" + `502` + "`" + `.",
                 "parameters": [
                     {
                         "description": "Window start (RFC 3339 or Unix seconds) — forwarded to kube-state-graph",
@@ -410,7 +410,7 @@ const docTemplate = `{
 var SwaggerInfo = &swag.Spec{
 	Version:          "v1",
 	Title:            "graph-api-gateway",
-	Description:      "HTTP gateway that runs a sequential pipeline: (1) fetch the kube-state-graph response with the inbound query, (2) extract `data.ipaddress` from every `node`-type entry, (3) if any IPs were collected, fetch the switch backend with those IPs batched as `?ip=…`, (4) re-anchor switch shadow nodes onto kube node IDs via IP match, (5) merge into a single Cytoscape.js envelope. Propagates W3C trace context end-to-end and emits structured logs via slog. Any backend failure returns `502`.",
+	Description:      "HTTP gateway that runs a sequential pipeline: (1) fetch the kube-state-graph response with the inbound query, (2) extract `data.ipaddress` from every `node`-type entry, (3) if any IPs were collected, POST those IPs to the switch backend batched as a single `[{\"ip\":…}]` JSON body, (4) re-anchor switch shadow nodes onto kube node IDs via IP match, (5) merge into a single Cytoscape.js envelope. Propagates W3C trace context end-to-end and emits structured logs via slog. Any backend failure returns `502`.",
 	InfoInstanceName: "swagger",
 	SwaggerTemplate:  docTemplate,
 	LeftDelim:        "{{",

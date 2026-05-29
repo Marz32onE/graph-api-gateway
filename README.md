@@ -7,7 +7,7 @@ sequential:
 1. forward the inbound query to kube-state-graph;
 2. extract every `data.ipaddress` from `node`-type entries in the response;
 3. if any IPs were collected, call the switch backend as
-   `GET /v1/graph?ip=<a>&ip=<b>…`;
+   `POST /v1/graph` with a batched JSON body `[{"ip":"<a>"},{"ip":"<b>"}]`;
 4. re-anchor the switch graph onto kube node IDs by IP match (switch shadow
    nodes are dropped, their edge references rewritten);
 5. merge primary + reconciled switch into one Cytoscape envelope (union nodes

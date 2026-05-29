@@ -4,7 +4,7 @@
 
 1. Forward the inbound query to **kube-state-graph** (primary) and parse the Cytoscape.js response.
 2. Walk every `node`-type entry, collect `data.ipaddress[]` into a deduped list. (Pods are not queried — only K8s node IPs go to switch.)
-3. If any IPs were collected, issue one batched call to the **switch backend** as `GET /v1/graph?ip=…&ip=…` and parse its Cytoscape response.
+3. If any IPs were collected, issue one batched call to the **switch backend** as `POST /v1/graph` with a JSON body `[{"ip":…},…]` (every IP in one request) and parse its Cytoscape response.
 4. **Reconcile** switch IDs onto kube IDs: switch backend uses its own ID space (e.g., `sw-host:xyz`); the gateway matches switch nodes to kube nodes by shared `data.ipaddress`, drops the switch-side shadows, and rewrites switch edges to point at the canonical kube node IDs.
 5. Merge primary + reconciled switch into a single envelope (union nodes by `data.id` with kube winning, dedup edges by `(type, source, target)`).
 6. Return the merged result.
@@ -100,13 +100,13 @@ type GraphBackend interface {
 
 Backend identity (`kube-state-graph` vs `switch`) is encoded by concrete struct type and surfaces through (a) the `otelhttp` transport's span name / `http.url` attributes and (b) per-stage log fields (`s.logger.ErrorContext(ctx, "ksg fetch failed", …)` / `"switch fetch failed"`). No `Name()` method on the interface keeps it minimal and avoids forcing every future backend to declare a string tag.
 
-`KubeStateGraphClient` and `SwitchGraphClient` are independent structs, each constructed with `(baseURL, apiKey, timeout)`. Both issue `GET <baseURL>/v1/graph?<rawQuery>`; the difference is **what the caller puts in `rawQuery`** — the gateway forwards the inbound query verbatim to primary and synthesises `ip=…&ip=…` for switch. The interface itself stays query-shape agnostic.
+`KubeStateGraphClient` and `SwitchGraphClient` share one resty transport, each constructed with `(baseURL, apiKey, timeout)`, but expose **request methods matched to each upstream's contract**: kube-state-graph is queried via `FetchGraph` (`GET <baseURL>/v1/graph?<rawQuery>`, the inbound query forwarded verbatim); the switch via `FetchGraphByIPs` (`POST <baseURL>/v1/graph` with a batched `[{"ip":…}]` JSON body). The shared `GraphBackend` interface (`FetchGraph`) is satisfied by the kube-state-graph client.
 
 `NodeData` carries an optional `IPAddress []string` (JSON tag `ipaddress`, `omitempty`) so kube-state-graph's extended contract decodes losslessly. The switch backend is expected to emit Cytoscape responses whose nodes / edges use IDs compatible with primary's `<cluster>/<uid>` convention (see Open Questions for the reconciliation policy if this assumption fails).
 
-**Why**: the orchestrator accepts the typed `*KubeStateGraphClient` + `*SwitchGraphClient` directly (no slice of interface) since the two stages have asymmetric roles. The interface still exists so each can be mocked independently for tests.
+**Why**: the orchestrator accepts the typed `*KubeStateGraphClient` + `*SwitchGraphClient` directly (no slice of interface) since the two stages have asymmetric roles. Both embed a shared unexported `graphClient` transport core (resty client, base URL, `Probe`); only the request-shaping method differs per type, so neither carries a method it never uses. The `GraphBackend` interface documents the kube-state-graph GET contract (asserted on `*KubeStateGraphClient`); tests exercise both clients against `httptest` servers rather than interface mocks.
 
-**Alternatives considered**: separate per-stage interfaces (`PrimaryBackend` vs `SwitchBackend`) — rejected, the only difference is the query shape, which is the caller's responsibility, not the interface's.
+**Alternatives considered**: threading the switch's batched IPs through `GraphQuery` (e.g. an `IPs []string` field) so both backends keep a single `FetchGraph` method — rejected, it forces kube-state-graph to ignore a field it never reads and hides the GET-vs-POST distinction behind one signature. A dedicated `FetchGraphByIPs` keeps each request shape explicit at the call site.
 
 ### D3. Outbound HTTP — resty wrapping an otelhttp-instrumented transport
 
@@ -185,7 +185,7 @@ ips := pipeline.ExtractIPs(primary)
 var switchGraph *client.CytoscapeGraph
 if len(ips) > 0 {
     switchCtx, cancel := context.WithTimeout(ctx, cfg.Switch.Timeout)
-    switchGraph, err = switchClient.FetchGraph(switchCtx, client.GraphQuery{RawQuery: buildIPQuery(ips)})
+    switchGraph, err = switchClient.FetchGraphByIPs(switchCtx, ips)
     cancel()
     if err != nil {
         return 502 upstream_unavailable
@@ -200,7 +200,7 @@ merged := merge.Merge(primary, reconciled)
 return 200 merged
 ```
 
-`buildIPQuery([]string) string` uses `url.Values{"ip": ips}.Encode()` so each IP is properly escaped. Order is preserved from `ExtractIPs` (insertion-order dedup) so the wire form is stable for caching/log diffing.
+`SwitchGraphClient.FetchGraphByIPs([]string)` builds a `[]ipRequest` and POSTs it as a single JSON array body `[{"ip":"<a>"},{"ip":"<b>"}]` to `/v1/graph`; JSON encoding escapes each IP. Order is preserved from `ExtractIPs` (insertion-order dedup) so the wire form is stable for caching/log diffing.
 
 **Why sequential, not parallel**: the switch call genuinely depends on the primary's output, so parallel fan-out would only be possible via speculative execution (call switch with stale IPs while primary runs). Not worth the complexity for v1.
 
@@ -292,9 +292,9 @@ for n in primary.Elements.Nodes:
 return out
 ```
 
-Insertion-order dedup → stable wire query → friendlier to logs and any future caching.
+Insertion-order dedup → stable request body → friendlier to logs and any future caching.
 
-**Stage 3 wire format**: `GET <switchBaseURL>/v1/graph?ip=10.0.0.1&ip=10.0.0.2`, built via `url.Values{"ip": ips}.Encode()`. Switch backend MUST accept the repeating-param form.
+**Stage 3 wire format**: `POST <switchBaseURL>/v1/graph` with `Content-Type: application/json` and body `[{"ip":"10.0.0.1"},{"ip":"10.0.0.2"}]`, built by `SwitchGraphClient.FetchGraphByIPs(ips)`. Every IP is sent in a single request; the switch backend MUST accept the JSON-array form.
 
 **Skip rule**: zero IPs → no switch call. Handler still passes `nil` through `ReconcileSwitch` → `Merge`, both documented to handle nil cleanly.
 
@@ -350,7 +350,7 @@ return out
 - **Edge key `type|source|target` collapses true multi-edges** → Acceptable for v1.
 - **Any stage failure → 502** → Operators lose primary data when only switch is down. Acceptable v1 trade-off; revisit with a concrete consumer ask.
 - **Switch backend depends on kube-state-graph contract change** → Gateway only decodes `data.ipaddress` if present (`omitempty`); when the field is absent the switch stage simply receives zero IPs and is skipped, so the gateway stays compatible with the pre-change kube-state-graph contract.
-- **Long IP lists balloon the switch URL** → A cluster with 1000 pods could produce a `?ip=…&ip=…` query of ~30 KB. Most HTTP stacks default to 8 KB header limits. Mitigation: cap at 500 IPs per call (TBD threshold) and either truncate with a WARN log or chunk into multiple switch calls. Out of scope for v1 — flag if observed.
+- **Long IP lists inflate the switch request body** → POSTing the IPs as a `[{"ip":…}]` JSON body sidesteps the URL/header-length limits the old `?ip=…` query form would have hit (a 1000-node cluster is fine), but a very large body could still stress the switch backend. Mitigation: cap at 500 IPs per call (TBD threshold) and either truncate with a WARN log or chunk into multiple switch calls. Out of scope for v1 — flag if observed.
 - **Sequential latency** = primary RTT + switch RTT (no overlap). Acceptable since the chain is short. Speculative parallel fetch (call switch with the previous request's IPs while primary runs) is a future optimisation, not v1.
 
 ## Migration Plan

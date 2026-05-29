@@ -8,7 +8,6 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
-	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -24,6 +23,8 @@ import (
 type stubCapture struct {
 	traceparent string
 	rawQuery    string
+	method      string
+	body        string
 	called      bool
 }
 
@@ -34,6 +35,9 @@ func newStub(t *testing.T, body string, status int, capture *stubCapture) *httpt
 			capture.called = true
 			capture.traceparent = r.Header.Get("Traceparent")
 			capture.rawQuery = r.URL.RawQuery
+			capture.method = r.Method
+			reqBody, _ := io.ReadAll(r.Body)
+			capture.body = string(reqBody)
 		}
 		w.WriteHeader(status)
 		_, _ = io.WriteString(w, body)
@@ -141,7 +145,7 @@ func TestGraphHandler_PrimaryAndSwitchSucceed_Reconciled(t *testing.T) {
 	}
 }
 
-func TestGraphHandler_SwitchReceivesDedupedIPQuery(t *testing.T) {
+func TestGraphHandler_SwitchReceivesDedupedIPBody(t *testing.T) {
 	sCap := &stubCapture{}
 	primary := newStub(t, primaryWithIPs, 200, nil)
 	swSrv := newStub(t, switchResponse, 200, sCap)
@@ -157,18 +161,22 @@ func TestGraphHandler_SwitchReceivesDedupedIPQuery(t *testing.T) {
 	if !sCap.called {
 		t.Fatal("switch backend was not called")
 	}
-	parsed, err := url.ParseQuery(sCap.rawQuery)
-	if err != nil {
-		t.Fatalf("parse switch query: %v", err)
+	if sCap.method != http.MethodPost {
+		t.Errorf("switch method: want POST, got %s", sCap.method)
 	}
-	gotIPs := parsed["ip"]
+	var gotIPs []struct {
+		IP string `json:"ip"`
+	}
+	if err := json.Unmarshal([]byte(sCap.body), &gotIPs); err != nil {
+		t.Fatalf("decode switch body %q: %v", sCap.body, err)
+	}
 	wantIPs := []string{"10.0.0.1", "10.0.0.2"}
 	if len(gotIPs) != len(wantIPs) {
 		t.Fatalf("switch ip count: want %d, got %d (%v)", len(wantIPs), len(gotIPs), gotIPs)
 	}
 	for i, ip := range wantIPs {
-		if gotIPs[i] != ip {
-			t.Errorf("ip[%d]: want %s, got %s", i, ip, gotIPs[i])
+		if gotIPs[i].IP != ip {
+			t.Errorf("ip[%d]: want %s, got %s", i, ip, gotIPs[i].IP)
 		}
 	}
 }
@@ -247,8 +255,15 @@ func TestGraphHandler_InboundQueryForwardedToPrimaryOnly(t *testing.T) {
 	if pCap.rawQuery != inboundQ {
 		t.Errorf("primary query: want %q, got %q", inboundQ, pCap.rawQuery)
 	}
-	if strings.Contains(sCap.rawQuery, "cluster=") || strings.Contains(sCap.rawQuery, "namespace=") || strings.Contains(sCap.rawQuery, "edge_type=") {
-		t.Errorf("switch query should contain only ip= params, got %q", sCap.rawQuery)
+	// The switch is queried via POST with an IP-only body — none of the inbound
+	// query params (forwarded only to primary) must leak into its request.
+	if sCap.rawQuery != "" {
+		t.Errorf("switch should carry no query string, got %q", sCap.rawQuery)
+	}
+	for _, leaked := range []string{"cluster", "namespace", "edge_type"} {
+		if strings.Contains(sCap.body, leaked) {
+			t.Errorf("switch body should contain only ip entries, leaked %q: %s", leaked, sCap.body)
+		}
 	}
 }
 
@@ -395,17 +410,5 @@ func TestHealth(t *testing.T) {
 		if w.Code != 200 || strings.TrimSpace(w.Body.String()) != "ok" {
 			t.Errorf("%s: want 200/ok, got %d/%q", path, w.Code, w.Body.String())
 		}
-	}
-}
-
-func TestBuildIPQuery(t *testing.T) {
-	got := buildIPQuery([]string{"10.0.0.1", "10.0.0.2"})
-	parsed, err := url.ParseQuery(got)
-	if err != nil {
-		t.Fatalf("parse: %v", err)
-	}
-	want := []string{"10.0.0.1", "10.0.0.2"}
-	if len(parsed["ip"]) != 2 || parsed["ip"][0] != want[0] || parsed["ip"][1] != want[1] {
-		t.Errorf("want ip=%v, got %v (raw %q)", want, parsed["ip"], got)
 	}
 }

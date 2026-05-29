@@ -1,7 +1,7 @@
 ## ADDED Requirements
 
-### Requirement: Shared Backend Interface
-The codebase SHALL define a single `GraphBackend` interface exposing `FetchGraph(ctx, GraphQuery) (*CytoscapeGraph, error)`, implemented by every backend wrapper. The interface is query-shape agnostic: the gateway builds `GraphQuery.RawQuery` differently per backend (kube-state-graph receives the inbound query verbatim; switch receives `ip=…&ip=…`). Backend identity (`"kube-state-graph"` vs `"switch"`) is encoded by concrete type, not by an interface method, and surfaces through the OTel transport's span attributes and per-stage log fields.
+### Requirement: Shared Transport, Per-Backend Request Shape
+The codebase SHALL define a `GraphBackend` interface exposing `FetchGraph(ctx, GraphQuery) (*CytoscapeGraph, error)`, satisfied by every backend wrapper. The two upstreams differ in request shape: kube-state-graph is queried via `FetchGraph` (the inbound query forwarded verbatim as `GraphQuery.RawQuery`), while the switch backend is queried via `FetchGraphByIPs(ctx, []string)`, which POSTs every collected IP in one `[{"ip":…}]` JSON body. Backend identity (`"kube-state-graph"` vs `"switch"`) is encoded by concrete type, not by an interface method, and surfaces through the OTel transport's span attributes and per-stage log fields.
 
 #### Scenario: Both built-in clients satisfy the interface
 - **WHEN** the codebase is compiled
@@ -52,6 +52,6 @@ The codebase SHALL ship `KubeStateGraphClient` (kube-state-graph primary) and `S
 - **WHEN** `KubeStateGraphClient` is constructed with `baseURL=http://ksg:8080` and `SwitchGraphClient` with `baseURL=http://switchsvc:8080`
 - **THEN** outbound calls hit `http://ksg:8080/v1/graph` and `http://switchsvc:8080/v1/graph` respectively
 
-#### Scenario: Switch client accepts an ip= query
-- **WHEN** `SwitchGraphClient.FetchGraph(ctx, GraphQuery{RawQuery: "ip=10.0.0.1&ip=10.0.0.2"})` is called
-- **THEN** the outbound request line is `GET <baseURL>/v1/graph?ip=10.0.0.1&ip=10.0.0.2`
+#### Scenario: Switch client POSTs a batched IP body
+- **WHEN** `SwitchGraphClient.FetchGraphByIPs(ctx, []string{"10.0.0.1", "10.0.0.2"})` is called
+- **THEN** the outbound request is `POST <baseURL>/v1/graph` with `Content-Type: application/json` and body `[{"ip":"10.0.0.1"},{"ip":"10.0.0.2"}]`
