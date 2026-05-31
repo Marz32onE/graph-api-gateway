@@ -226,6 +226,61 @@ func TestNodeData_IPAddressDecode(t *testing.T) {
 	}
 }
 
+// Compound nodes (kube-state-graph design.md D31): the upstream emits synthetic
+// `cluster/<name>` group nodes (type "cluster", no ipaddress) plus a data.parent
+// reference on real nodes. The gateway must decode and re-serialise both
+// without dropping them, otherwise the Cytoscape compound nesting is lost.
+func TestNodeData_CompoundParentDecode(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{
+			"apiVersion":"v1",
+			"elements":{
+				"nodes":[
+					{"data":{"id":"cluster/prod","name":"prod","type":"cluster"}},
+					{"data":{"id":"node-1","type":"node","parent":"cluster/prod","ipaddress":["10.0.0.1"]}},
+					{"data":{"id":"pod-1","type":"pod","parent":"node-1"}}
+				],
+				"edges":[]
+			}
+		}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	c := NewKubeStateGraphClient(srv.URL, "", 5*time.Second)
+	g, err := c.FetchGraph(context.Background(), GraphQuery{})
+	if err != nil {
+		t.Fatalf("fetch: %v", err)
+	}
+
+	nodes := g.Elements.Nodes
+	if len(nodes) != 3 {
+		t.Fatalf("want 3 nodes, got %d", len(nodes))
+	}
+	// cluster group node decodes with empty parent and no ipaddress.
+	if nodes[0].Data.Type != "cluster" || nodes[0].Data.Parent != "" || nodes[0].Data.IPAddress != nil {
+		t.Errorf("cluster group node decoded wrong: %+v", nodes[0].Data)
+	}
+	if nodes[1].Data.Parent != "cluster/prod" {
+		t.Errorf("node parent: want cluster/prod, got %q", nodes[1].Data.Parent)
+	}
+	if nodes[2].Data.Parent != "node-1" {
+		t.Errorf("pod parent: want node-1, got %q", nodes[2].Data.Parent)
+	}
+
+	// Re-serialise: parent must round-trip; empty parent must stay omitted.
+	b, err := json.Marshal(g)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(b)
+	if !strings.Contains(s, `"parent":"cluster/prod"`) || !strings.Contains(s, `"parent":"node-1"`) {
+		t.Errorf("re-serialised JSON dropped parent: %s", s)
+	}
+	if strings.Contains(s, `"parent":""`) {
+		t.Errorf("empty parent should be omitted, got: %s", s)
+	}
+}
+
 // Compile-time guard: make sure CytoscapeGraph round-trips through json.
 func TestCytoscapeGraph_Roundtrip(t *testing.T) {
 	in := &CytoscapeGraph{

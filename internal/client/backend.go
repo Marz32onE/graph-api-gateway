@@ -41,10 +41,20 @@ type Node struct {
 // populates it on node/pod entries) and the switch backend (which populates it
 // on endpoint-shadow entries). The gateway reconciles switch IDs onto kube IDs
 // by matching this field.
+//
+// Parent is the Cytoscape compound-grouping reference (kube-state-graph
+// design.md D31): a pod points at its K8s node, and node/service/pvc entries
+// point at a synthetic `cluster/<name>` group node. The gateway forwards it
+// verbatim — it MUST be retained here so the compound nesting survives the
+// parse → merge → re-serialise round-trip. Synthetic `cluster` group nodes
+// carry type "cluster" and no IPAddress, so they pass through
+// ExtractIPs/ReconcileSwitch untouched (only "node"-type entries are
+// considered there).
 type NodeData struct {
 	ID        string            `json:"id"`
 	Name      string            `json:"name,omitempty"`
 	Type      string            `json:"type,omitempty"`
+	Parent    string            `json:"parent,omitempty"`
 	Labels    map[string]string `json:"labels,omitempty"`
 	IPAddress []string          `json:"ipaddress,omitempty"`
 }
