@@ -9,7 +9,6 @@ bin/
 *.test
 *.out
 *.log
-local/
 openspec/
 README*.md
 LICENSE

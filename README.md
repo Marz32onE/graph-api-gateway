@@ -66,12 +66,6 @@ make docker-build    # build the distroless container image
 make docker-docs     # run the container locally so /docs is reachable
 ```
 
-Local end-to-end rig with stub backends + OTel collector:
-
-```bash
-docker compose -f local/docker-compose.yaml up
-```
-
 ## Layout
 
 ```

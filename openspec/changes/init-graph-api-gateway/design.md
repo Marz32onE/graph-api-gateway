@@ -79,7 +79,6 @@ graph-api-gateway/
 ├── tools/openapi-postprocess/         # rewrites parameter `example` → `schema.example` for Scalar
 │   └── main.go
 ├── deploy/docker/Dockerfile
-├── local/docker-compose.yaml          # gateway + two stub backends + otel-collector
 ├── scripts/refresh-docs-ui.sh         # vendor scalar bundle into internal/api/static/scalar/
 ├── Makefile
 ├── go.mod
@@ -358,8 +357,7 @@ return out
 Greenfield repo — no migration. Rollout:
 1. Land `cmd/`, `internal/`, generated `docs/swagger.{yaml,json}` + embedded copies in `internal/api/static/openapi/`, Makefile, Dockerfile.
 2. Wire CI: `go test ./...`, `go vet`, `golangci-lint`, `make check-docs`.
-3. Local: `local/docker-compose.yaml` spins up gateway + `stub-ksg` + `stub-switch` + an OTel collector → trace and merged response verifiable end-to-end.
-4. Promote to staging once `/v1/graph` returns a merged Cytoscape payload with both backends reachable.
+3. Promote to staging once `/v1/graph` returns a merged Cytoscape payload with both backends reachable.
 
 Rollback: standalone service, drop the deployment. Backends are untouched.
 

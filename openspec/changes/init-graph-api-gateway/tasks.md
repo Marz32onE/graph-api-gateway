@@ -1,7 +1,7 @@
 ## 1. Project scaffolding
 
 - [x] 1.1 Initialise `go.mod` with module path `github.com/marz32one/graph-api-gateway` and Go 1.22+
-- [x] 1.2 Create directory layout: `cmd/graph-api-gateway/`, `internal/{api,client,merge,config,observability,build}/`, `internal/api/static/{openapi,scalar}/`, `docs/`, `tools/openapi-postprocess/`, `deploy/docker/`, `local/`, `scripts/`
+- [x] 1.2 Create directory layout: `cmd/graph-api-gateway/`, `internal/{api,client,merge,config,observability,build}/`, `internal/api/static/{openapi,scalar}/`, `docs/`, `tools/openapi-postprocess/`, `deploy/docker/`, `scripts/`
 - [x] 1.3 Add core dependencies: `github.com/gin-gonic/gin`, `github.com/go-resty/resty/v2`, `go.opentelemetry.io/otel`, `go.opentelemetry.io/otel/sdk`, `go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp`, `go.opentelemetry.io/contrib/instrumentation/github.com/gin-gonic/gin/otelgin`, `go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp`, `github.com/google/uuid` (no `errgroup` — sequential pipeline per D5)
 - [x] 1.4 Add `github.com/swaggo/swag/v2` as a tool dependency (`go.mod` `tool` directive), matching the version used by kube-state-graph
 - [x] 1.5 Add baseline `Makefile` targets: `build`, `test`, `vet`, `lint`, `docs`, `check-docs`, `refresh-docs-ui`, `docker-build`, `docker-docs`
@@ -63,8 +63,7 @@
 
 - [x] 8.1 Implement `cmd/graph-api-gateway/main.go`: load config → setup logging → setup tracing (deferred shutdown) → construct backend clients → construct server → start with `http.Server` and `signal.NotifyContext(ctx, SIGINT, SIGTERM)` for graceful `Shutdown`
 - [x] 8.2 Add `deploy/docker/Dockerfile` (multi-stage: golang builder → distroless runtime), build via `make docker-build`
-- [x] 8.3 Add `local/docker-compose.yaml`: gateway + two stub graph backends (using a minimal Go stub or echo image) + an OpenTelemetry Collector
-- [x] 8.4 Add `Makefile docker-docs` target: runs the gateway container with placeholder backend URLs so `/docs`, `/openapi.{yaml,json}` are reachable for spec review
+- [x] 8.3 Add `Makefile docker-docs` target: runs the gateway container with placeholder backend URLs so `/docs`, `/openapi.{yaml,json}` are reachable for spec review
 
 ## 9. Verification
 
@@ -72,7 +71,7 @@
 - [x] 9.2 `go vet ./...` clean
 - [x] 9.3 `golangci-lint run` clean (0 issues)
 - [x] 9.4 `make check-docs` regenerated cleanly
-- [x] 9.5 Local smoke: gateway against primary stub (kube node with `ipaddress:["10.0.0.1"]` + pod + pod-runs-on-node edge) and switch stub (`sw-host:xyz` shadow on 10.0.0.1 + `switch:tor-1` + host-attached edge) → merged `/v1/graph` correctly drops `sw-host:xyz` and rewrites the host-attached edge to `prod/abc → switch:tor-1`; switch stub received a `POST /v1/graph` `[{"ip":"10.0.0.1"}]` body; access log JSON carries `request_id`.
+- [x] 9.5 Integration tests (`httptest` stubs): merged `/v1/graph` drops switch shadow `sw-host:xyz`, rewrites host-attached edge to `prod/abc → switch:tor-1`, switch receives `POST /v1/graph` `[{"ip":"10.0.0.1"}]`; access log carries `request_id`.
 
 ## 10. Sequential pipeline integration (switch backend)
 
@@ -85,5 +84,4 @@
 - [x] 10.7 Rename env keys per D8: `BACKEND_SECONDARY_URL` → `SWITCH_GRAPH_URL`, `BACKEND_SECONDARY_API_KEY` → `SWITCH_GRAPH_API_KEY`, `BACKEND_SECONDARY_TIMEOUT` → `SWITCH_GRAPH_TIMEOUT`; `BACKEND_PRIMARY_*` → `KUBE_STATE_GRAPH_*`; rename `Config.Secondary` → `Config.Switch` and `Config.Primary` → `Config.KSG`; update `config_test.go` table cases
 - [x] 10.8 Update `cmd/graph-api-gateway/main.go` wiring: construct `KubeStateGraphClient` and `SwitchGraphClient`, pass to `api.New` as typed dependencies (drop the `[]GraphBackend` slice signature)
 - [x] 10.9 Update `internal/api/server.go` constructor: replace `backends []client.GraphBackend` with explicit `primary *client.KubeStateGraphClient, switchClient *client.SwitchGraphClient`; inline per-backend timeout lookup
-- [x] 10.10 Update `local/docker-compose.yaml`: rename `stub-secondary` → `stub-switch`; primary stub payload includes a node with `"ipaddress": ["10.0.0.1"]`; switch stub returns a shadow `{id:"sw-host:x", ipaddress:["10.0.0.1"]}` + switch chassis + edge, so the smoke verifies reconciliation end-to-end
-- [x] 10.11 Re-run `make docs` and commit regenerated `docs/swagger.{yaml,json}` and embedded copies
+- [x] 10.10 Re-run `make docs` and commit regenerated `docs/swagger.{yaml,json}` and embedded copies

@@ -1,0 +1,670 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>graph-api-gateway — 專案指南（繁體中文）</title>
+  <style>
+    :root {
+      --bg: #0f1419;
+      --surface: #1a2332;
+      --border: #2d3a4f;
+      --text: #e6edf3;
+      --muted: #8b9cb3;
+      --accent: #58a6ff;
+      --accent2: #3fb950;
+      --warn: #d29922;
+      --danger: #f85149;
+      --code-bg: #161b22;
+      --font: "SF Pro Text", "PingFang TC", "Noto Sans TC", system-ui, sans-serif;
+      --mono: "SF Mono", "JetBrains Mono", "Menlo", monospace;
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      font-family: var(--font);
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.65;
+      font-size: 16px;
+    }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    .layout {
+      display: grid;
+      grid-template-columns: 280px 1fr;
+      min-height: 100vh;
+    }
+    @media (max-width: 900px) {
+      .layout { grid-template-columns: 1fr; }
+      nav.toc { position: static; height: auto; border-right: none; border-bottom: 1px solid var(--border); }
+    }
+    nav.toc {
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      overflow-y: auto;
+      padding: 1.5rem 1rem;
+      background: var(--surface);
+      border-right: 1px solid var(--border);
+      font-size: 0.875rem;
+    }
+    nav.toc h2 {
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--muted);
+      margin: 0 0 0.75rem 0.5rem;
+    }
+    nav.toc ul { list-style: none; padding: 0; margin: 0; }
+    nav.toc li { margin: 0.15rem 0; }
+    nav.toc a {
+      display: block;
+      padding: 0.35rem 0.5rem;
+      border-radius: 6px;
+      color: var(--muted);
+    }
+    nav.toc a:hover { background: var(--bg); color: var(--text); text-decoration: none; }
+    nav.toc .sub { padding-left: 1rem; font-size: 0.8125rem; }
+    main {
+      max-width: 52rem;
+      padding: 2.5rem 2rem 4rem;
+    }
+    h1 {
+      font-size: 2rem;
+      font-weight: 700;
+      margin: 0 0 0.5rem;
+      letter-spacing: -0.02em;
+    }
+    .subtitle { color: var(--muted); font-size: 1.05rem; margin-bottom: 2rem; }
+    h2 {
+      font-size: 1.45rem;
+      margin: 2.5rem 0 1rem;
+      padding-bottom: 0.4rem;
+      border-bottom: 1px solid var(--border);
+    }
+    h3 { font-size: 1.15rem; margin: 1.75rem 0 0.75rem; color: var(--accent); }
+    h4 { font-size: 1rem; margin: 1.25rem 0 0.5rem; }
+    p { margin: 0.75rem 0; }
+    ul, ol { margin: 0.5rem 0 1rem; padding-left: 1.5rem; }
+    li { margin: 0.35rem 0; }
+    code {
+      font-family: var(--mono);
+      font-size: 0.88em;
+      background: var(--code-bg);
+      padding: 0.15em 0.4em;
+      border-radius: 4px;
+      border: 1px solid var(--border);
+    }
+    pre {
+      font-family: var(--mono);
+      font-size: 0.8125rem;
+      background: var(--code-bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1rem 1.25rem;
+      overflow-x: auto;
+      line-height: 1.5;
+    }
+    pre code { background: none; border: none; padding: 0; }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.9rem;
+      margin: 1rem 0;
+    }
+    th, td {
+      border: 1px solid var(--border);
+      padding: 0.55rem 0.75rem;
+      text-align: left;
+      vertical-align: top;
+    }
+    th { background: var(--surface); color: var(--accent); }
+    tr:nth-child(even) td { background: rgba(255,255,255,0.02); }
+    .badge {
+      display: inline-block;
+      font-size: 0.7rem;
+      font-weight: 600;
+      padding: 0.2em 0.55em;
+      border-radius: 4px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .badge-get { background: #238636; color: #fff; }
+    .badge-post { background: #1f6feb; color: #fff; }
+    .callout {
+      border-left: 4px solid var(--accent);
+      background: var(--surface);
+      padding: 1rem 1.25rem;
+      margin: 1rem 0;
+      border-radius: 0 8px 8px 0;
+    }
+    .callout.warn { border-color: var(--warn); }
+    .callout.danger { border-color: var(--danger); }
+    .callout.ok { border-color: var(--accent2); }
+    .flow-box {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1.25rem;
+      margin: 1rem 0;
+      font-family: var(--mono);
+      font-size: 0.8rem;
+      white-space: pre;
+      overflow-x: auto;
+      line-height: 1.45;
+    }
+    .step-list { counter-reset: step; list-style: none; padding: 0; }
+    .step-list li {
+      counter-increment: step;
+      position: relative;
+      padding-left: 2.5rem;
+      margin: 1rem 0;
+    }
+    .step-list li::before {
+      content: counter(step);
+      position: absolute;
+      left: 0;
+      width: 1.75rem;
+      height: 1.75rem;
+      background: var(--accent);
+      color: var(--bg);
+      border-radius: 50%;
+      font-weight: 700;
+      font-size: 0.85rem;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    footer {
+      margin-top: 3rem;
+      padding-top: 1.5rem;
+      border-top: 1px solid var(--border);
+      color: var(--muted);
+      font-size: 0.875rem;
+    }
+  </style>
+</head>
+<body>
+<div class="layout">
+  <nav class="toc" aria-label="目錄">
+    <h2>目錄</h2>
+    <ul>
+      <li><a href="#overview">專案概述</a></li>
+      <li><a href="#architecture">架構與流程</a></li>
+      <li><a href="#what-it-does">做了什麼</a></li>
+      <li><a href="#layout">目錄結構</a></li>
+      <li><a href="#pipeline">管線演算法</a></li>
+      <li><a href="#endpoints">HTTP 端點</a></li>
+      <li><a href="#config">環境變數</a></li>
+      <li><a href="#prerequisites">本地前置需求</a></li>
+      <li><a href="#local-run">本地執行</a></li>
+      <li class="sub"><a href="#local-binary">直接跑二進位</a></li>
+      <li class="sub"><a href="#local-docs">僅預覽文件</a></li>
+      <li><a href="#extend">擴充 API / 功能</a></li>
+      <li class="sub"><a href="#extend-endpoint">新增端點</a></li>
+      <li class="sub"><a href="#extend-pipeline">改管線邏輯</a></li>
+      <li class="sub"><a href="#extend-backend">新增後端</a></li>
+      <li class="sub"><a href="#extend-docs">更新 OpenAPI</a></li>
+      <li><a href="#testing">測試與 CI</a></li>
+      <li><a href="#observability">可觀測性</a></li>
+      <li><a href="#errors">錯誤對應</a></li>
+      <li><a href="#faq">常見問題</a></li>
+    </ul>
+  </nav>
+
+  <main>
+    <h1>graph-api-gateway</h1>
+    <p class="subtitle">HTTP 閘道：將 kube-state-graph 與 switch 兩個 Cytoscape 圖後端合併為單一 <code>GET /v1/graph</code> 回應。本文件為繁體中文完整開發與維運指南。</p>
+
+    <section id="overview">
+      <h2>專案概述</h2>
+      <p>
+        <strong>graph-api-gateway</strong> 是用 Go 撰寫的 HTTP 閘道服務。客戶端只需呼叫閘道的一個端點，閘道會依序：
+      </p>
+      <ol>
+        <li>把查詢參數原樣轉發給 <strong>kube-state-graph</strong>（Kubernetes 狀態圖，主圖）；</li>
+        <li>從主圖中擷取所有 K8s <code>node</code> 的 <code>data.ipaddress</code>；</li>
+        <li>若有 IP，以單次 <code>POST</code> 批次查詢 <strong>switch</strong> 後端（網路交換機拓撲）；</li>
+        <li>依 IP 將 switch 的「影子節點」對齊到 kube 節點 ID，並改寫邊的 source/target；</li>
+        <li>合併兩張圖，回傳統一的 Cytoscape.js JSON 信封。</li>
+      </ol>
+      <div class="callout ok">
+        <strong>設計原則：</strong>無狀態、無快取、無部分成功——任一階段失敗即回傳 502/504，不會回傳「半套」圖。W3C Trace Context 端到端傳遞；結構化日誌（slog）在 span 內自動帶上 <code>trace_id</code> / <code>span_id</code>。
+      </div>
+      <p>與姊妹專案 <code>kube-state-graph</code> 採相同目錄慣例與 OpenAPI（swag + Scalar）工具鏈，方便在兩個 repo 之間切換貢獻。</p>
+    </section>
+
+    <section id="architecture">
+      <h2>架構與整體流程</h2>
+      <h3>系統元件</h3>
+      <div class="flow-box">┌─────────────┐     GET /v1/graph?...      ┌──────────────────┐
+│   客戶端     │ ─────────────────────────► │ graph-api-gateway │
+│ (UI / curl) │ ◄───────────────────────── │   (本 repo)       │
+└─────────────┘     合併後 Cytoscape JSON    └────────┬─────────┘
+                                                      │
+                    ┌─────────────────────────────────┼─────────────────────────────────┐
+                    │                                 │                                 │
+                    ▼                                 ▼                                 ▼
+           GET /v1/graph?{rawQuery}        POST /v1/graph [{"ip":...}]          OTLP (可選)
+           ┌──────────────────┐            ┌──────────────────┐            ┌─────────────────┐
+           │ kube-state-graph │            │  switch backend  │            │ OTel Collector  │
+           │   (主後端)        │            │  (交換機圖)       │            └─────────────────┘
+           └──────────────────┘            └──────────────────┘</div>
+
+      <h3>請求處理順序（<code>GET /v1/graph</code>）</h3>
+      <div class="flow-box">客戶端請求
+    │
+    ▼
+[Middleware] Recovery → otelgin → Request-ID → Access log
+    │
+    ▼
+① withTimeout(KSG_TIMEOUT) → kube-state-graph GET /v1/graph?{轉發查詢}
+    │ 失敗 → 502 / 504 / 499
+    ▼
+② pipeline.ExtractIPs(主圖)  // 僅 type=="node"
+    │
+    ├─ IP 列表為空 → 跳過 ③，switchGraph = nil
+    │
+    ▼
+③ withTimeout(SWITCH_TIMEOUT) → switch POST /v1/graph  body: [{"ip":"..."},...]
+    │ 失敗 → 502 / 504 / 499
+    ▼
+④ pipeline.ReconcileSwitch(主圖, switch圖)  // IP 對齊、丟影子節點、改寫邊
+    ▼
+⑤ merge.Merge(主圖, reconciled)  // 節點 union by id，邊 dedup by (type,src,tgt)
+    ▼
+200 JSON CytoscapeGraph</div>
+
+      <p>管線為<strong>循序</strong>執行（非並行）：switch 查詢依賴主圖擷取出的 IP，無法與主圖並行發起（除非未來做投機執行，目前不在範圍內）。</p>
+    </section>
+
+    <section id="what-it-does">
+      <h2>做了什麼</h2>
+      <table>
+        <thead>
+          <tr><th>能力</th><th>說明</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>圖合併</td><td>將 K8s 狀態圖與交換機拓撲合併為單一 Cytoscape 信封，供前端一次渲染。</td></tr>
+          <tr><td>查詢轉發</td><td><code>start</code>、<code>end</code>、<code>cluster</code>、<code>namespace</code>、<code>edge_type</code>、<code>name</code>、<code>root</code>、<code>depth</code>、<code>direction</code> 等查詢參數原樣轉給 kube-state-graph。</td></tr>
+          <tr><td>IP 批次查 switch</td><td>所有 node IP 打成一個 JSON 陣列 POST，避免 URL 長度限制。</td></tr>
+          <tr><td>ID 對齊</td><td>switch 端點影子（如 <code>sw-host:xyz</code>）透過 <code>data.ipaddress</code> 對到 kube node ID（如 <code>prod/abc</code>），影子節點刪除、邊端點改寫。</td></tr>
+          <tr><td>健康檢查</td><td><code>/livez</code> 存活；<code>/readyz</code> 探測兩個後端 <code>/livez</code> 是否可達。</td></tr>
+          <tr><td>API 文件</td><td>內嵌 OpenAPI 3.1 + Scalar UI（<code>/docs</code>）。</td></tr>
+          <tr><td>追蹤與日誌</td><td>OTLP HTTP 匯出（可選）；slog JSON/text；請求 ID 與 trace 關聯。</td></tr>
+        </tbody>
+      </table>
+
+      <h3>刻意不做的事（v1）</h3>
+      <ul>
+        <li>閘道本身不要求客戶端認證（僅轉發各後端的 <code>X-API-Key</code>）。</li>
+        <li>無快取、ETag、重試。</li>
+        <li>無部分成功（不會回 200 + warnings）。</li>
+        <li>無 Prometheus <code>/metrics</code>。</li>
+        <li>不支援第三個後端（架構預留擴充，但未實作）。</li>
+      </ul>
+    </section>
+
+    <section id="layout">
+      <h2>目錄結構</h2>
+      <pre><code>graph-api-gateway/
+├── cmd/graph-api-gateway/     # main：載入設定、OTel、組裝 HTTP server
+├── internal/
+│   ├── api/                   # Gin 路由、handlers、middleware、嵌入的 OpenAPI/Scalar
+│   ├── build/                 # ldflags 注入的 version / commit
+│   ├── client/                # kube-state-graph、switch 的 resty 客戶端
+│   ├── config/                # 環境變數載入與驗證
+│   ├── merge/                 # 純函式：多圖 union（無 I/O）
+│   ├── observability/         # OTLP tracing、slog handler
+│   └── pipeline/              # ExtractIPs、ReconcileSwitch（純函式）
+├── docs/                      # swag 產生的 swagger + 本 HTML 指南
+├── tools/openapi-postprocess/ # 修正 Scalar 讀不到的 parameter example
+├── deploy/docker/Dockerfile   # 多階段建置 → distroless 映像
+├── scripts/refresh-docs-ui.sh # 更新 vendored Scalar 靜態資源
+├── openspec/                  # 設計規格與變更紀錄（OpenSpec 工作流）
+├── Makefile                   # build / test / docs / ci / docker
+└── README.md                  # 英文簡介</code></pre>
+    </section>
+
+    <section id="pipeline">
+      <h2>管線演算法詳解</h2>
+
+      <h3>階段 2：<code>ExtractIPs</code></h3>
+      <p>僅處理 <code>data.type == "node"</code> 的節點（Pod 的 IP 不會送給 switch）。對每個 IP 做插入順序去重，回傳穩定順序的 <code>[]string</code>。</p>
+
+      <h3>階段 3：Switch 請求格式</h3>
+      <pre><code>POST {SWITCH_GRAPH_URL}/v1/graph
+Content-Type: application/json
+X-API-Key: {SWITCH_GRAPH_API_KEY}   // 若設定
+
+[{"ip":"10.0.0.1"},{"ip":"10.0.0.2"}]</code></pre>
+
+      <h3>階段 4：<code>ReconcileSwitch</code></h3>
+      <ol>
+        <li>建立 <code>ip → kube node ID</code> 索引（主圖 node 類型）。</li>
+        <li>走訪 switch 節點：若任一 <code>ipaddress</code> 命中索引，記錄 <code>switchID → kubeID</code> 改寫表。</li>
+        <li>輸出新圖：刪除被對齊的影子節點；保留 switch 專用節點（chassis、port 等）；邊的 source/target 依改寫表替換。</li>
+        <li>若改寫後產生自環（兩個影子對到同一 kube 節點），該邊會被丟棄。</li>
+      </ol>
+
+      <h3>階段 5：<code>Merge</code></h3>
+      <ul>
+        <li><strong>節點：</strong>以 <code>data.id</code> union；衝突時<strong>先寫入者勝</strong>（呼叫順序固定為 kube 主圖在前）。</li>
+        <li><strong>邊：</strong>以 <code>(type, source, target)</code> 去重，先寫入者勝。</li>
+        <li><strong>clusters：</strong>各輸入圖的 <code>clusters</code> 欄位聯集後排序輸出。</li>
+        <li>輸入圖不被修改；回傳全新結構。</li>
+      </ul>
+
+      <h3>資料模型要點（<code>internal/client/backend.go</code>）</h3>
+      <p><code>NodeData.IPAddress</code> 是 kube 與 switch 之間的<strong>唯一對齊鍵</strong>。switch 的端點影子必須帶 <code>ipaddress</code>，否則無法對到 kube node，影子會以原 ID 留在合併圖中（不會 crash）。</p>
+    </section>
+
+    <section id="endpoints">
+      <h2>HTTP 端點</h2>
+      <table>
+        <thead>
+          <tr><th>方法</th><th>路徑</th><th>用途</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><span class="badge badge-get">GET</span></td><td><code>/v1/graph</code></td><td>合併後的 Cytoscape 圖（主要業務 API）</td></tr>
+          <tr><td><span class="badge badge-get">GET</span></td><td><code>/livez</code></td><td>存活探針，永遠 <code>200 ok</code></td></tr>
+          <tr><td><span class="badge badge-get">GET</span></td><td><code>/readyz</code></td><td>就緒探針；兩後端皆可達才 <code>200</code>，否則 <code>503</code></td></tr>
+          <tr><td><span class="badge badge-get">GET</span></td><td><code>/openapi.yaml</code></td><td>內嵌 OpenAPI 3.1 YAML</td></tr>
+          <tr><td><span class="badge badge-get">GET</span></td><td><code>/openapi.json</code></td><td>內嵌 OpenAPI 3.1 JSON</td></tr>
+          <tr><td><span class="badge badge-get">GET</span></td><td><code>/docs</code></td><td>Scalar API Reference UI</td></tr>
+          <tr><td><span class="badge badge-get">GET</span></td><td><code>/docs/assets/*</code></td><td>Scalar 靜態資源</td></tr>
+        </tbody>
+      </table>
+
+      <h3><code>/v1/graph</code> 查詢參數（轉發給 kube-state-graph）</h3>
+      <table>
+        <thead><tr><th>參數</th><th>說明</th></tr></thead>
+        <tbody>
+          <tr><td><code>start</code>, <code>end</code></td><td>時間視窗（RFC 3339 或 Unix 秒）</td></tr>
+          <tr><td><code>cluster</code>, <code>namespace</code>, <code>edge_type</code>, <code>name</code></td><td>可重複的篩選條件</td></tr>
+          <tr><td><code>root</code>, <code>depth</code>, <code>direction</code></td><td>圖遍歷錨點與方向（<code>in</code>|<code>out</code>|<code>both</code>）</td></tr>
+        </tbody>
+      </table>
+      <p>完整參數與回應 schema 請在執行中的服務開啟 <a href="#local-run"><code>/docs</code></a> 查看。</p>
+    </section>
+
+    <section id="config">
+      <h2>環境變數</h2>
+      <p>所有設定來自環境變數，啟動時驗證；缺少必填項會直接退出。</p>
+      <table>
+        <thead>
+          <tr><th>變數</th><th>預設</th><th>說明</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><code>LISTEN_ADDR</code></td><td><code>:8080</code></td><td>HTTP 監聽位址</td></tr>
+          <tr><td><code>LOG_LEVEL</code></td><td><code>info</code></td><td><code>debug</code> | <code>info</code> | <code>warn</code> | <code>error</code></td></tr>
+          <tr><td><code>LOG_FORMAT</code></td><td><code>json</code></td><td><code>json</code> | <code>text</code></td></tr>
+          <tr><td><code>KUBE_STATE_GRAPH_URL</code></td><td><em>必填</em></td><td>kube-state-graph 根 URL（<code>http(s)://host</code>，不可含 query/fragment/userinfo）</td></tr>
+          <tr><td><code>KUBE_STATE_GRAPH_API_KEY</code></td><td><code>""</code></td><td>非空時以 <code>X-API-Key</code> 轉發</td></tr>
+          <tr><td><code>KUBE_STATE_GRAPH_TIMEOUT</code></td><td><code>10s</code></td><td>單次 kube 呼叫逾時</td></tr>
+          <tr><td><code>SWITCH_GRAPH_URL</code></td><td><em>必填</em></td><td>switch 後端根 URL（格式同左）</td></tr>
+          <tr><td><code>SWITCH_GRAPH_API_KEY</code></td><td><code>""</code></td><td>同上</td></tr>
+          <tr><td><code>SWITCH_GRAPH_TIMEOUT</code></td><td><code>10s</code></td><td>單次 switch 呼叫逾時</td></tr>
+          <tr><td><code>OTEL_EXPORTER_OTLP_ENDPOINT</code></td><td>未設定</td><td>設定後啟用 OTLP/HTTP trace 匯出；未設定則 noop tracer</td></tr>
+          <tr><td><code>OTEL_*</code></td><td>—</td><td>標準 OpenTelemetry SDK 環境變數</td></tr>
+        </tbody>
+      </table>
+      <div class="callout warn">
+        <strong>注意：</strong>即使只想預覽 <code>/docs</code>，程式仍要求兩個 <code>*_URL</code> 在啟動時存在（可用 placeholder URL）。實際呼叫 <code>/v1/graph</code> 時若後端不存在會得到 <code>502</code>。
+      </div>
+    </section>
+
+    <section id="prerequisites">
+      <h2>本地開發 — 前置需求</h2>
+      <table>
+        <thead><tr><th>工具</th><th>版本建議</th><th>用途</th></tr></thead>
+        <tbody>
+          <tr><td><strong>Go</strong></td><td>1.25+（見 <code>go.mod</code>）</td><td>編譯、測試、<code>go tool swag</code></td></tr>
+          <tr><td><strong>Git</strong></td><td>任意近期版</td><td>clone、hooks</td></tr>
+          <tr><td><strong>Docker</strong></td><td>建議 24+</td><td>選用：<code>make docker-build</code> / <code>make docker-docs</code></td></tr>
+          <tr><td><strong>Make</strong></td><td>—</td><td>統一指令入口</td></tr>
+          <tr><td><strong>golangci-lint</strong></td><td>Makefile 釘選 v2.11.4</td><td><code>make lint</code> / CI</td></tr>
+          <tr><td><strong>govulncheck</strong></td><td>latest</td><td><code>make vuln</code></td></tr>
+          <tr><td><strong>curl</strong></td><td>—</td><td>手動打 API</td></tr>
+        </tbody>
+      </table>
+
+      <h3>一次性環境初始化</h3>
+      <p>在 repo 根目錄執行：</p>
+      <pre><code># 下載模組 + 安裝主機端 dev 工具（golangci-lint、govulncheck）
+make init
+
+# 檢查工具鏈是否齊全
+make doctor
+
+# （可選）啟用 git hooks：pre-commit 快速檢查、pre-push 跑完整 CI
+make init-hooks</code></pre>
+      <p><code>make init</code> 會執行 <code>go mod download</code> 並檢查 <code>go.mod</code> 是否 tidy。<code>swag</code> 透過 <code>go.mod</code> 的 <code>tool</code> 指令使用，無需另外 <code>go install</code>。</p>
+      <div class="callout">
+        若 <code>make doctor</code> 顯示 <code>golangci-lint MISSING</code>，請確認 <code>$(go env GOPATH)/bin</code> 在 <code>PATH</code> 中，或再執行一次 <code>make init-tools</code>。
+      </div>
+    </section>
+
+    <section id="local-run">
+      <h2>本地執行方式</h2>
+      <p>依需求選擇下列其一或組合使用。完整管線行為由 <code>internal/api/server_test.go</code> 的 <code>httptest</code> 整合測試覆蓋；本地需連真實 kube-state-graph 與 switch，或僅預覽 API 文件。</p>
+
+      <h3 id="local-binary">方式 A：本機二進位 + 真實後端</h3>
+      <p>當你已有可連線的 kube-state-graph 與 switch 服務時：</p>
+      <pre><code>make build
+# 產物：./bin/graph-api-gateway
+
+export LISTEN_ADDR=":8080"
+export LOG_LEVEL="debug"
+export LOG_FORMAT="text"
+export KUBE_STATE_GRAPH_URL="http://localhost:9001"    # 改成你的 URL
+export KUBE_STATE_GRAPH_API_KEY=""                   # 若需要
+export SWITCH_GRAPH_URL="http://localhost:9002"
+export SWITCH_GRAPH_API_KEY=""
+# 可選：export OTEL_EXPORTER_OTLP_ENDPOINT="http://localhost:4318"
+
+./bin/graph-api-gateway</code></pre>
+      <p>或使用一行啟動（請替換 URL）：</p>
+      <pre><code>KUBE_STATE_GRAPH_URL=http://ksg.example:8080 \
+SWITCH_GRAPH_URL=http://switch.example:8080 \
+LOG_FORMAT=text LOG_LEVEL=debug \
+./bin/graph-api-gateway</code></pre>
+
+      <h3 id="local-docs">方式 B：僅預覽 API 文件（不需真實後端）</h3>
+      <h4>B1 — 無 Docker</h4>
+      <pre><code>make docs-preview
+# 前景執行，Ctrl-C 結束
+open http://localhost:8080/docs</code></pre>
+      <p>使用 placeholder 後端 URL；<code>/v1/graph</code> 會 <code>502</code> 屬預期。</p>
+
+      <h4>B2 — Docker 容器</h4>
+      <pre><code>make docker-docs
+# 或背景：make docker-docs DETACH=1
+open http://localhost:8080/docs
+make docker-docs-stop   # 停止</code></pre>
+
+      <h3>開發常用 Make 目標</h3>
+      <table>
+        <thead><tr><th>指令</th><th>說明</th></tr></thead>
+        <tbody>
+          <tr><td><code>make build</code></td><td>編譯至 <code>bin/graph-api-gateway</code></td></tr>
+          <tr><td><code>make test</code></td><td>單元測試 + race + shuffle</td></tr>
+          <tr><td><code>make ci</code></td><td>lint + vuln + test + check-docs（等同 CI）</td></tr>
+          <tr><td><code>make docs</code></td><td>從 handler 註解重新產生 OpenAPI 並複製到 embed 目錄</td></tr>
+          <tr><td><code>make check-docs</code></td><td>確認 committed 文件與原始碼同步</td></tr>
+          <tr><td><code>make docker-build</code></td><td>建置 distroless 映像</td></tr>
+          <tr><td><code>make cover</code></td><td>測試覆蓋率報告</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section id="extend">
+      <h2>如何新增或修改 API / 功能</h2>
+      <p>以下依變更類型說明應修改的檔案與建議流程。變更後請執行 <code>make test</code>，若動到 HTTP 契約則執行 <code>make docs</code> 並提交產物。</p>
+
+      <h3 id="extend-endpoint">新增或修改 HTTP 端點</h3>
+      <ol class="step-list">
+        <li>
+          <strong>在 <code>internal/api/server.go</code> 註冊路由</strong><br />
+          例如 <code>r.GET("/v1/foo", s.handleFoo)</code>。Middleware 鏈已全域套用（Recovery、OTel、Request-ID、Access log）。
+        </li>
+        <li>
+          <strong>在 <code>internal/api/handlers.go</code>（或新檔）實作 handler</strong><br />
+          參考 <code>handleGraph</code>：從 <code>c.Request.Context()</code> 取 context、用 <code>withTimeout</code> 包後端呼叫、用 <code>writeFetchError</code> 統一錯誤映射。
+        </li>
+        <li>
+          <strong>加上 swag 註解</strong><br />
+          在 handler 上方撰寫 <code>// @Summary</code>、<code>// @Router</code>、<code>// @Param</code> 等（與現有 <code>handleGraph</code> 相同風格）。頂層 <code>@title</code> 等在 <code>cmd/graph-api-gateway/main.go</code>。
+        </li>
+        <li>
+          <strong>執行 <code>make docs</code></strong><br />
+          會產生 <code>docs/swagger.{yaml,json}</code> 並複製到 <code>internal/api/static/openapi/</code>。CI 的 <code>docs-drift</code> job 會跑 <code>make check-docs</code>，未提交會失敗。
+        </li>
+        <li>
+          <strong>補測試</strong><br />
+          在 <code>internal/api/*_test.go</code> 用 <code>httptest</code> 驗證狀態碼與 JSON。現有 <code>server_test.go</code> 可作範本。
+        </li>
+      </ol>
+
+      <h3 id="extend-pipeline">修改圖管線邏輯</h3>
+      <table>
+        <thead><tr><th>想改什麼</th><th>主要檔案</th><th>說明</th></tr></thead>
+        <tbody>
+          <tr>
+            <td>IP 擷取規則</td>
+            <td><code>internal/pipeline/extract.go</code></td>
+            <td>常數 <code>nodeTypeK8sNode</code>、<code>iterNodeIPs</code>。改 type 條件時請同步 <code>reconcile.go</code>。</td>
+          </tr>
+          <tr>
+            <td>Switch 對齊 / 改寫邊</td>
+            <td><code>internal/pipeline/reconcile.go</code></td>
+            <td>純函式，請維持不 mutate 輸入。加 case 時補 <code>pipeline_test.go</code>。</td>
+          </tr>
+          <tr>
+            <td>合併策略</td>
+            <td><code>internal/merge/merge.go</code></td>
+            <td>節點/邊去重規則。改「先寫入者勝」會影響 kube vs switch 優先權。</td>
+          </tr>
+          <tr>
+            <td>編排順序 / 錯誤處理</td>
+            <td><code>internal/api/handlers.go</code> <code>handleGraph</code></td>
+            <td>例如新增第三階段後端呼叫、條件跳過邏輯。</td>
+          </tr>
+          <tr>
+            <td>Cytoscape 型別</td>
+            <td><code>internal/client/backend.go</code></td>
+            <td>新增 JSON 欄位時加 struct tag，確保 round-trip 不丟欄位。</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h3 id="extend-backend">修改後端呼叫或新增後端</h3>
+      <ol>
+        <li><strong>Kube GET 行為：</strong> <code>internal/client/kubestategraph.go</code> — <code>FetchGraph</code> 轉發 raw query。</li>
+        <li><strong>Switch POST 行為：</strong> <code>internal/client/switch.go</code> — <code>FetchGraphByIPs</code> 組 <code>[{"ip":...}]</code> body。</li>
+        <li><strong>共用傳輸：</strong> <code>internal/client/transport.go</code> — otelhttp 包裝的 <code>http.Client</code>。</li>
+        <li><strong>新後端：</strong> 在 <code>config/config.go</code> 加 env 前綴與驗證；在 <code>main.go</code> 建 client 並注入 <code>api.New</code>；擴充 <code>Server</code> struct 與 <code>handleReadyz</code> 探測列表。</li>
+      </ol>
+      <div class="callout">
+        設計文件建議先讀 <code>openspec/changes/init-graph-api-gateway/design.md</code>（決策 D2、D9 等），重大行為變更可走 OpenSpec 變更流程（<code>.claude/skills/openspec-*</code>）。
+      </div>
+
+      <h3 id="extend-docs">更新 API 文件與 Scalar UI</h3>
+      <ul>
+        <li><code>make docs</code> — 從註解產生 OpenAPI；<code>tools/openapi-postprocess</code> 會把 query param 的 <code>example</code> 複製到 <code>schema.example</code> 供 Scalar 顯示。</li>
+        <li><code>make refresh-docs-ui</code> — 更新 <code>internal/api/static/scalar/</code> vendored  bundle（升級 Scalar 版本時）。</li>
+        <li>嵌入路徑：<code>internal/api/docs.go</code> 使用 <code>//go:embed</code> 服務靜態檔。</li>
+      </ul>
+
+      <h3>建議的 PR 前檢查清單</h3>
+      <pre><code>make ci          # 或至少：make test && make lint && make check-docs
+go vet ./...</code></pre>
+    </section>
+
+    <section id="testing">
+      <h2>測試與 CI</h2>
+      <h3>本地測試</h3>
+      <pre><code>make test          # 全套件，-race -shuffle
+make cover         # 覆蓋率
+go test ./internal/pipeline/... -v -run TestExtract   # 單包/單測</code></pre>
+      <p>客戶端測試使用 <code>httptest.Server</code> 模擬上游（見 <code>internal/client/client_test.go</code>）。</p>
+
+      <h3>GitHub Actions（<code>.github/workflows/ci.yml</code>）</h3>
+      <p>PR 時並行執行四個 job：</p>
+      <ul>
+        <li><strong>lint</strong> — golangci-lint</li>
+        <li><strong>vuln</strong> — govulncheck</li>
+        <li><strong>test</strong> — <code>go test ./... -race -shuffle</code></li>
+        <li><strong>docs-drift</strong> — <code>make check-docs</code></li>
+      </ul>
+      <p>本地等效：<code>make ci</code>（pre-push hook 亦會呼叫）。</p>
+    </section>
+
+    <section id="observability">
+      <h2>可觀測性</h2>
+      <h3>Tracing</h3>
+      <ul>
+        <li>入站：<code>otelgin.Middleware</code> 建立 server span，尊重 <code>traceparent</code>。</li>
+        <li>出站：<code>otelhttp.NewTransport</code> 包在 resty 的 <code>http.Client</code> 上，自動注入 trace context。</li>
+        <li>未設定 <code>OTEL_EXPORTER_OTLP_ENDPOINT</code> 時使用 noop tracer（零開銷）。</li>
+      </ul>
+
+      <h3>Logging</h3>
+      <ul>
+        <li><code>LOG_FORMAT=json</code> 適合生產；<code>text</code> 適合本地除錯。</li>
+        <li>每個請求一筆 access log（<code>method</code>、<code>path</code>、<code>status</code>、<code>duration_ms</code>、<code>request_id</code>）。</li>
+        <li><code>/livez</code>、<code>/readyz</code> 的 2xx 不寫 access log，避免探針洗版。</li>
+        <li><code>X-Request-ID</code>：客戶端可傳入（需符合字元/長度限制），否則伺服器產生 UUID，並寫入 span attribute <code>http.request_id</code>。</li>
+      </ul>
+    </section>
+
+    <section id="errors">
+      <h2>錯誤對應</h2>
+      <table>
+        <thead><tr><th>情境</th><th>HTTP</th><th>回應</th></tr></thead>
+        <tbody>
+          <tr><td>上游逾時（<code>context.DeadlineExceeded</code>）</td><td>504</td><td><code>{"error":"upstream_timeout"}</code></td></tr>
+          <tr><td>客戶端中斷連線</td><td>499</td><td>無 body（nginx 慣例狀態碼）</td></tr>
+          <tr><td>傳輸錯誤、非 2xx、JSON 解碼失敗等</td><td>502</td><td><code>{"error":"upstream_unavailable"}</code></td></tr>
+          <tr><td>就緒探針：任一本端後端不可達</td><td>503</td><td>純文字 <code>not ready: ksg</code> 或 <code>switch</code></td></tr>
+        </tbody>
+      </table>
+      <p>無重試：一次失敗即回錯誤給客戶端，不會回傳僅含 kube 圖的部分結果。</p>
+    </section>
+
+    <section id="faq">
+      <h2>常見問題</h2>
+
+      <h4>啟動時報 <code>KUBE_STATE_GRAPH_URL is required</code></h4>
+      <p>兩個 <code>*_URL</code> 皆為必填。僅看文件時可用 <code>make docs-preview</code> 內建的 placeholder URL。</p>
+
+      <h4><code>/v1/graph</code> 永遠 502</h4>
+      <ul>
+        <li>確認 <code>KUBE_STATE_GRAPH_URL</code> / <code>SWITCH_GRAPH_URL</code> 可從 gateway 程序連線（Docker 網路 vs host 網路）。</li>
+        <li>確認上游有 <code>/v1/graph</code> 且 switch 接受 POST JSON 陣列。</li>
+        <li>用 <code>LOG_LEVEL=debug</code> 查看結構化錯誤訊息（含上游 status 與 body 摘要）。</li>
+      </ul>
+
+      <h4>合併圖裡 switch 節點與 kube 節點沒連上</h4>
+      <p>檢查 kube node 與 switch 影子是否都有相同 <code>data.ipaddress</code>。若 switch 未填 <code>ipaddress</code>，reconcile 不會改寫 ID，兩邊圖會並存但邊可能斷開。</p>
+
+      <h4>主圖沒有 node IP，switch 會被呼叫嗎？</h4>
+      <p>不會。<code>ExtractIPs</code> 為空時跳過 switch 階段，最後 <code>Merge</code> 僅輸出 kube 主圖（仍走 merge 以保持信封一致）。</p>
+
+      <h4><code>make check-docs</code> 失敗</h4>
+      <p>執行 <code>make docs</code>，將 <code>docs/</code> 與 <code>internal/api/static/openapi/</code> 的變更一併 commit。</p>
+
+      <h4>Go 版本與 Dockerfile 不一致？</h4>
+      <p><code>go.mod</code> 要求 Go 1.25；<code>deploy/docker/Dockerfile</code> 的 <code>GO_VERSION</code> build arg 預設 1.24，建置時可覆寫：<code>docker build --build-arg GO_VERSION=1.25 ...</code>。</p>
+    </section>
+
+    <footer>
+      <p>文件產生自 repo 原始碼與 <code>openspec/changes/init-graph-api-gateway/design.md</code>。若行為與程式碼不一致，以程式碼為準。</p>
+      <p>英文簡介：<code>README.md</code> · 互動 API 文件：執行服務後開啟 <code>/docs</code></p>
+    </footer>
+  </main>
+</div>
+</body>
+</html>
