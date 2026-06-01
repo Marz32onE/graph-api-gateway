@@ -19,14 +19,13 @@ import (
 // inbound auth is configured with the supplied keys (none = auth disabled).
 func newAuthServer(t *testing.T, keys ...string) *Server {
 	t.Helper()
-	primary := newStub(t, primaryWithIPs, 200, nil)
 	swSrv := newStub(t, switchResponse, 200, nil)
 
 	cfg := &config.Config{
 		ListenAddr: ":0",
 		LogLevel:   "debug",
 		LogFormat:  "json",
-		KSG:        config.Backend{BaseURL: primary.URL, Timeout: 2 * time.Second},
+		KSG:        config.KubeGraph{VictoriaMetricsURL: "http://vm:8428", BuildTimeout: 2 * time.Second},
 		Switch:     config.Backend{BaseURL: swSrv.URL, Timeout: 2 * time.Second},
 	}
 	logger := slog.New(slog.NewJSONHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelDebug}))
@@ -34,9 +33,10 @@ func newAuthServer(t *testing.T, keys ...string) *Server {
 	if len(keys) > 0 {
 		ks.LoadCSV(strings.Join(keys, ","))
 	}
-	pc := client.NewKubeStateGraphClient(primary.URL, "", cfg.KSG.Timeout)
 	sc := client.NewSwitchGraphClient(swSrv.URL, "", cfg.Switch.Timeout)
-	return New(cfg, logger, pc, sc, ks)
+	// primaryNoIPs → switch skipped on /v1/graph; the auth tests assert the auth
+	// outcome, not the merged graph.
+	return New(cfg, logger, &fakeKSG{body: mustBody(t, primaryNoIPs)}, sc, ks)
 }
 
 func doReq(s *Server, method, path, key string) *httptest.ResponseRecorder {

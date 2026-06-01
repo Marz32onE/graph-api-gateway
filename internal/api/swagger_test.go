@@ -9,7 +9,7 @@ import (
 )
 
 func TestDocsUI_ServesIndex(t *testing.T) {
-	s := newTestServer(t, "http://unused", "http://unused", io.Discard)
+	s := newTestServer(t, &fakeKSG{}, "http://unused", io.Discard)
 	req := httptest.NewRequest(http.MethodGet, "/docs/", nil)
 	w := httptest.NewRecorder()
 	s.Handler().ServeHTTP(w, req)
@@ -23,7 +23,7 @@ func TestDocsUI_ServesIndex(t *testing.T) {
 }
 
 func TestDocsUI_InitializerPointsAtOpenAPI(t *testing.T) {
-	s := newTestServer(t, "http://unused", "http://unused", io.Discard)
+	s := newTestServer(t, &fakeKSG{}, "http://unused", io.Discard)
 	req := httptest.NewRequest(http.MethodGet, "/docs/swagger-initializer.js", nil)
 	w := httptest.NewRecorder()
 	s.Handler().ServeHTTP(w, req)
@@ -40,7 +40,7 @@ func TestDocsUI_InitializerPointsAtOpenAPI(t *testing.T) {
 }
 
 func TestDocsUI_ServesEmbeddedAsset(t *testing.T) {
-	s := newTestServer(t, "http://unused", "http://unused", io.Discard)
+	s := newTestServer(t, &fakeKSG{}, "http://unused", io.Discard)
 	req := httptest.NewRequest(http.MethodGet, "/docs/swagger-ui.css", nil)
 	w := httptest.NewRecorder()
 	s.Handler().ServeHTTP(w, req)
@@ -51,7 +51,7 @@ func TestDocsUI_ServesEmbeddedAsset(t *testing.T) {
 }
 
 func TestOpenAPIJSON_ServesGeneratedSpec(t *testing.T) {
-	s := newTestServer(t, "http://unused", "http://unused", io.Discard)
+	s := newTestServer(t, &fakeKSG{}, "http://unused", io.Discard)
 	req := httptest.NewRequest(http.MethodGet, "/openapi.json", nil)
 	w := httptest.NewRecorder()
 	s.Handler().ServeHTTP(w, req)

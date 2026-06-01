@@ -8,6 +8,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/marz32one/kube-state-graph/pkg/cytoscape"
+
 	"github.com/marz32one/graph-api-gateway/internal/client"
 	"github.com/marz32one/graph-api-gateway/internal/merge"
 	"github.com/marz32one/graph-api-gateway/internal/pipeline"
@@ -17,7 +19,7 @@ import (
 // primary fetch → IP extraction → conditional switch fetch → reconciliation → merge.
 //
 //	@Summary		Merged kube + switch graph (Cytoscape.js)
-//	@Description	Runs a sequential pipeline: (1) forward the inbound query to kube-state-graph and parse the Cytoscape response; (2) collect `data.ipaddress` from every `node`-type entry; (3) if any IPs were collected, call the switch backend as `POST /v1/graph` with a JSON body `[{"ip":"<a>"},{"ip":"<b>"}]` (all IPs batched into one request); (4) re-anchor the switch graph onto kube node IDs by matching `data.ipaddress` (switch shadow nodes are dropped, their edge references rewritten); (5) merge primary + reconciled switch (union nodes by `data.id` with kube winning, dedup edges by `(type,source,target)`). Any stage failure returns `502`.
+//	@Description	Runs a sequential pipeline: (1) build the kube-state-graph graph in-process from the inbound query (an embedded engine querying VictoriaMetrics directly — no HTTP hop); (2) collect `data.ipaddress` from every `node`-type entry; (3) if any IPs were collected, call the switch backend as `POST /v1/graph` with a JSON body `[{"ip":"<a>"},{"ip":"<b>"}]` (all IPs batched into one request); (4) re-anchor the switch graph onto kube node IDs by matching `data.ipaddress` (switch shadow nodes are dropped, their edge references rewritten); (5) merge primary + reconciled switch (union nodes by `data.id` with kube winning, dedup edges by `(type,source,target)`). Any stage failure returns `502`.
 //	@Tags			graph
 //	@Produce		json
 //	@Param			start		query		string	false	"Window start (RFC 3339 or Unix seconds) — forwarded to kube-state-graph"
@@ -29,7 +31,7 @@ import (
 //	@Param			root		query		string	false	"Anchor a traversal at a node id — forwarded to kube-state-graph"
 //	@Param			depth		query		int		false	"Traversal depth — forwarded to kube-state-graph"
 //	@Param			direction	query		string	false	"Traversal direction (`in`|`out`|`both`) — forwarded to kube-state-graph"
-//	@Success		200			{object}	client.CytoscapeGraph
+//	@Success		200			{object}	cytoscape.Body
 //	@Failure		401			{object}	errorResponse	"missing or invalid X-API-Key (when auth enabled)"
 //	@Failure		502			{object}	errorResponse
 //	@Failure		504			{object}	errorResponse
@@ -41,13 +43,13 @@ func (s *Server) handleGraph(c *gin.Context) {
 	// withTimeout runs one pipeline stage under a per-stage deadline derived
 	// from the inbound request context, so a slow backend cannot stall the
 	// whole request beyond its configured budget.
-	withTimeout := func(timeout time.Duration, fn func(context.Context) (*client.CytoscapeGraph, error)) (*client.CytoscapeGraph, error) {
+	withTimeout := func(timeout time.Duration, fn func(context.Context) (*cytoscape.Body, error)) (*cytoscape.Body, error) {
 		stageCtx, cancel := context.WithTimeout(ctx, timeout)
 		defer cancel()
 		return fn(stageCtx)
 	}
 
-	ksgGraph, err := withTimeout(s.cfg.KSG.Timeout, func(stageCtx context.Context) (*client.CytoscapeGraph, error) {
+	ksgGraph, err := withTimeout(s.cfg.KSG.BuildTimeout, func(stageCtx context.Context) (*cytoscape.Body, error) {
 		return s.ksg.FetchGraph(stageCtx, client.GraphQuery{RawQuery: c.Request.URL.RawQuery})
 	})
 	if err != nil {
@@ -57,9 +59,9 @@ func (s *Server) handleGraph(c *gin.Context) {
 
 	ips := pipeline.ExtractIPs(ksgGraph)
 
-	var switchGraph *client.CytoscapeGraph
+	var switchGraph *cytoscape.Body
 	if len(ips) > 0 {
-		switchGraph, err = withTimeout(s.cfg.Switch.Timeout, func(stageCtx context.Context) (*client.CytoscapeGraph, error) {
+		switchGraph, err = withTimeout(s.cfg.Switch.Timeout, func(stageCtx context.Context) (*cytoscape.Body, error) {
 			return s.switchClient.FetchGraphByIPs(stageCtx, ips)
 		})
 		if err != nil {

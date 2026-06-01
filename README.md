@@ -4,8 +4,10 @@ HTTP gateway that stitches together the **kube-state-graph** and **switch**
 Cytoscape backends into a single `/v1/graph` response. The pipeline is
 sequential:
 
-1. forward the inbound query to kube-state-graph;
-2. extract every `data.ipaddress` from `node`-type entries in the response;
+1. build the kube-state-graph graph **in-process** from the inbound query — an
+   embedded engine (kube-state-graph's public `pkg/`) querying VictoriaMetrics
+   directly, with no HTTP hop and no JSON round-trip;
+2. extract every `data.ipaddress` from `node`-type entries in the result;
 3. if any IPs were collected, call the switch backend as
    `POST /v1/graph` with a batched JSON body `[{"ip":"<a>"},{"ip":"<b>"}]`;
 4. re-anchor the switch graph onto kube node IDs by IP match (switch shadow
@@ -42,9 +44,9 @@ or invalid key returns `401 {"error":"unauthorized"}`. Health probes (`/livez`,
 always exempt. Keys are compared in constant time; `API_KEYS_FILE` is
 hot-reloaded so a Kubernetes Secret rotation is picked up without a restart.
 
-This is independent of the per-backend `KUBE_STATE_GRAPH_API_KEY` /
-`SWITCH_GRAPH_API_KEY`, which are the **outbound** credentials the gateway
-presents to its upstreams.
+This is independent of the outbound `SWITCH_GRAPH_API_KEY` the gateway presents
+to the switch backend. The kube-state-graph side is in-process (it queries
+VictoriaMetrics directly) and carries no outbound credential.
 
 ## Configuration
 
@@ -55,9 +57,9 @@ All settings come from the environment.
 | `LISTEN_ADDR` | `:8080` | HTTP listen address |
 | `LOG_LEVEL` | `info` | `debug` \| `info` \| `warn` \| `error` |
 | `LOG_FORMAT` | `json` | `json` \| `text` |
-| `KUBE_STATE_GRAPH_URL` | _required_ | kube-state-graph base URL (`http`/`https`, no userinfo/query/fragment) |
-| `KUBE_STATE_GRAPH_API_KEY` | `""` | forwarded as `X-API-Key` when non-empty |
-| `KUBE_STATE_GRAPH_TIMEOUT` | `10s` | per-call timeout |
+| `VICTORIA_METRICS_URL` | _required_ | VictoriaMetrics base URL the embedded kube-state-graph engine queries (`http`/`https`, no userinfo/query/fragment) |
+| `KSG_METRIC_PREFIX` | `""` | upstream kube-state-metrics metric-name prefix (kube-state-graph D26) |
+| `KSG_BUILD_TIMEOUT` | `15s` | bounds the in-process graph build |
 | `SWITCH_GRAPH_URL` | _required_ | switch backend base URL (same shape rules) |
 | `SWITCH_GRAPH_API_KEY` | `""` | as above |
 | `SWITCH_GRAPH_TIMEOUT` | `10s` | as above |
@@ -65,9 +67,9 @@ All settings come from the environment.
 | `API_KEYS_FILE` | `""` | path to a keys file (one per line, `#` comments). Takes precedence over `API_KEYS`; hot-reloaded |
 | `API_KEYS_RELOAD_INTERVAL` | `30s` | how often to re-read `API_KEYS_FILE`; `0` disables hot reload |
 
-Backends are named after the upstream domain (not pipeline role) so a future
-second-tier switch or alternate kube source can be added without renaming the
-existing ones.
+The kube-state-graph side is embedded in-process via its public `pkg/` engine
+(no HTTP round-trip); only the switch backend is a remote HTTP upstream, so it
+must be reachable on the network along with VictoriaMetrics.
 
 ## Quick start
 
@@ -87,7 +89,7 @@ cmd/graph-api-gateway      # main entrypoint
 internal/api               # gin server, handlers, middleware, auth, swagger UI
 internal/auth              # inbound X-API-Key validation (constant-time KeySet)
 internal/build             # ldflags-injected version/commit
-internal/client            # kube-state-graph + switch backend wrappers
+internal/client            # embedded kube-state-graph engine adapter + switch HTTP wrapper
 internal/config            # env loading + validation
 internal/merge             # graph union helper (pure)
 internal/observability     # slog logger wiring

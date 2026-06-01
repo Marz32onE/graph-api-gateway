@@ -4,70 +4,70 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/marz32one/graph-api-gateway/internal/client"
+	"github.com/marz32one/kube-state-graph/pkg/cytoscape"
 )
 
-func n(id, typ string) client.Node {
-	return client.Node{Data: client.NodeData{ID: id, Type: typ}}
+func n(id, typ string) cytoscape.Node {
+	return cytoscape.Node{Data: cytoscape.NodeData{ID: id, Type: typ}}
 }
-func e(typ, src, tgt string) client.Edge { //nolint:unparam // typ is varied in future cases
-	return client.Edge{Data: client.EdgeData{Type: typ, Source: src, Target: tgt}}
+func e(typ, src, tgt string) cytoscape.Edge { //nolint:unparam // typ is varied in future cases
+	return cytoscape.Edge{Data: cytoscape.EdgeData{Type: typ, Source: src, Target: tgt}}
 }
-func g(nodes []client.Node, edges []client.Edge, clusters ...string) *client.CytoscapeGraph {
-	return &client.CytoscapeGraph{
+func g(nodes []cytoscape.Node, edges []cytoscape.Edge, clusters ...string) *cytoscape.Body {
+	return &cytoscape.Body{
 		APIVersion: "v1",
 		Clusters:   append([]string(nil), clusters...),
-		Elements:   client.Elements{Nodes: nodes, Edges: edges},
+		Elements:   cytoscape.Elements{Nodes: nodes, Edges: edges},
 	}
 }
 
 func TestMerge(t *testing.T) {
 	tests := []struct {
 		name      string
-		inputs    []*client.CytoscapeGraph
-		wantNodes []client.Node
-		wantEdges []client.Edge
+		inputs    []*cytoscape.Body
+		wantNodes []cytoscape.Node
+		wantEdges []cytoscape.Edge
 	}{
 		{
 			name: "disjoint union",
-			inputs: []*client.CytoscapeGraph{
-				g([]client.Node{n("a", "pod")}, []client.Edge{e("t", "a", "b")}),
-				g([]client.Node{n("b", "node")}, []client.Edge{e("t", "b", "c")}),
+			inputs: []*cytoscape.Body{
+				g([]cytoscape.Node{n("a", "pod")}, []cytoscape.Edge{e("t", "a", "b")}),
+				g([]cytoscape.Node{n("b", "node")}, []cytoscape.Edge{e("t", "b", "c")}),
 			},
-			wantNodes: []client.Node{n("a", "pod"), n("b", "node")},
-			wantEdges: []client.Edge{e("t", "a", "b"), e("t", "b", "c")},
+			wantNodes: []cytoscape.Node{n("a", "pod"), n("b", "node")},
+			wantEdges: []cytoscape.Edge{e("t", "a", "b"), e("t", "b", "c")},
 		},
 		{
 			name: "node id collision resolves to first writer",
-			inputs: []*client.CytoscapeGraph{
-				g([]client.Node{n("x", "pod")}, nil),
-				g([]client.Node{n("x", "node")}, nil),
+			inputs: []*cytoscape.Body{
+				g([]cytoscape.Node{n("x", "pod")}, nil),
+				g([]cytoscape.Node{n("x", "node")}, nil),
 			},
-			wantNodes: []client.Node{n("x", "pod")},
-			wantEdges: []client.Edge{},
+			wantNodes: []cytoscape.Node{n("x", "pod")},
+			wantEdges: []cytoscape.Edge{},
 		},
 		{
 			name: "edge triple collision collapses",
-			inputs: []*client.CytoscapeGraph{
-				g(nil, []client.Edge{e("t", "a", "b")}),
-				g(nil, []client.Edge{e("t", "a", "b")}),
+			inputs: []*cytoscape.Body{
+				g(nil, []cytoscape.Edge{e("t", "a", "b")}),
+				g(nil, []cytoscape.Edge{e("t", "a", "b")}),
 			},
-			wantNodes: []client.Node{},
-			wantEdges: []client.Edge{e("t", "a", "b")},
+			wantNodes: []cytoscape.Node{},
+			wantEdges: []cytoscape.Edge{e("t", "a", "b")},
 		},
 		{
 			name: "distinct edge triples preserved",
-			inputs: []*client.CytoscapeGraph{
-				g(nil, []client.Edge{e("t", "a", "b"), e("t", "b", "c")}),
+			inputs: []*cytoscape.Body{
+				g(nil, []cytoscape.Edge{e("t", "a", "b"), e("t", "b", "c")}),
 			},
-			wantNodes: []client.Node{},
-			wantEdges: []client.Edge{e("t", "a", "b"), e("t", "b", "c")},
+			wantNodes: []cytoscape.Node{},
+			wantEdges: []cytoscape.Edge{e("t", "a", "b"), e("t", "b", "c")},
 		},
 		{
 			name:      "nil inputs are skipped",
-			inputs:    []*client.CytoscapeGraph{nil, g([]client.Node{n("a", "pod")}, nil), nil},
-			wantNodes: []client.Node{n("a", "pod")},
-			wantEdges: []client.Edge{},
+			inputs:    []*cytoscape.Body{nil, g([]cytoscape.Node{n("a", "pod")}, nil), nil},
+			wantNodes: []cytoscape.Node{n("a", "pod")},
+			wantEdges: []cytoscape.Edge{},
 		},
 	}
 
@@ -88,8 +88,8 @@ func TestMerge(t *testing.T) {
 }
 
 func TestMerge_InputsNotMutated(t *testing.T) {
-	a := g([]client.Node{n("x", "pod")}, []client.Edge{e("t", "x", "y")})
-	b := g([]client.Node{n("x", "node")}, []client.Edge{e("t", "x", "y")})
+	a := g([]cytoscape.Node{n("x", "pod")}, []cytoscape.Edge{e("t", "x", "y")})
+	b := g([]cytoscape.Node{n("x", "node")}, []cytoscape.Edge{e("t", "x", "y")})
 
 	beforeA := *a
 	beforeAElements := a.Elements

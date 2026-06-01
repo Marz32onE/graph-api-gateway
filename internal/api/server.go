@@ -17,14 +17,14 @@ type Server struct {
 	engine       *gin.Engine
 	logger       *slog.Logger
 	cfg          *config.Config
-	ksg          *client.KubeStateGraphClient
+	ksg          client.GraphBackend
 	switchClient *client.SwitchGraphClient
 	keys         auth.Validator
 }
 
 // New constructs a Server with all routes and middleware wired. keys may be nil
 // to run with API-key authentication disabled (an empty KeySet is substituted).
-func New(cfg *config.Config, logger *slog.Logger, ksg *client.KubeStateGraphClient, switchClient *client.SwitchGraphClient, keys auth.Validator) *Server {
+func New(cfg *config.Config, logger *slog.Logger, ksg client.GraphBackend, switchClient *client.SwitchGraphClient, keys auth.Validator) *Server {
 	if keys == nil {
 		keys = auth.NewKeySet()
 	}

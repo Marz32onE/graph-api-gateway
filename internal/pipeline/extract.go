@@ -2,7 +2,7 @@
 // handler to bridge kube-state-graph and the switch backend.
 package pipeline
 
-import "github.com/marz32one/graph-api-gateway/internal/client"
+import "github.com/marz32one/kube-state-graph/pkg/cytoscape"
 
 // nodeTypeK8sNode is the data.type value the gateway treats as a K8s node
 // for IP extraction and reconciliation. Centralised so extract.go and
@@ -11,7 +11,7 @@ const nodeTypeK8sNode = "node"
 
 // iterNodeIPs invokes fn(nodeID, ip) for every (id, ip) pair on K8s-node
 // entries in g, skipping empty IPs. Pure walk — caller decides what to collect.
-func iterNodeIPs(g *client.CytoscapeGraph, fn func(nodeID, ip string)) {
+func iterNodeIPs(g *cytoscape.Body, fn func(nodeID, ip string)) {
 	if g == nil {
 		return
 	}
@@ -35,7 +35,7 @@ func iterNodeIPs(g *client.CytoscapeGraph, fn func(nodeID, ip string)) {
 // only. Returned IPs are deduplicated and preserve insertion order. Returns a
 // non-nil empty slice when g is nil or contains no eligible entries. Does not
 // mutate the input.
-func ExtractIPs(g *client.CytoscapeGraph) []string {
+func ExtractIPs(g *cytoscape.Body) []string {
 	n := 0
 	if g != nil {
 		n = len(g.Elements.Nodes)

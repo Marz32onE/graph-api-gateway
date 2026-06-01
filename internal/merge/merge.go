@@ -4,7 +4,7 @@ package merge
 import (
 	"sort"
 
-	"github.com/marz32one/graph-api-gateway/internal/client"
+	"github.com/marz32one/kube-state-graph/pkg/cytoscape"
 )
 
 // edgeKey deduplicates edges by the (type, source, target) triple without
@@ -18,7 +18,7 @@ type edgeKey struct {
 // Nodes are unioned by data.id; on collision the first writer wins.
 // Edges are deduplicated by the (type, source, target) triple; on collision
 // the first writer wins. Inputs are not mutated; the returned graph is fresh.
-func Merge(graphs ...*client.CytoscapeGraph) *client.CytoscapeGraph {
+func Merge(graphs ...*cytoscape.Body) *cytoscape.Body {
 	// Output is bounded by the total input size (dedup only shrinks it), so
 	// size the dedup sets and output slices up front to avoid regrowth.
 	var totalNodes, totalEdges int
@@ -31,11 +31,11 @@ func Merge(graphs ...*client.CytoscapeGraph) *client.CytoscapeGraph {
 
 	nodeSeen := make(map[string]struct{}, totalNodes)
 	edgeSeen := make(map[edgeKey]struct{}, totalEdges)
-	out := &client.CytoscapeGraph{
+	out := &cytoscape.Body{
 		APIVersion: "v1",
-		Elements: client.Elements{
-			Nodes: make([]client.Node, 0, totalNodes),
-			Edges: make([]client.Edge, 0, totalEdges),
+		Elements: cytoscape.Elements{
+			Nodes: make([]cytoscape.Node, 0, totalNodes),
+			Edges: make([]cytoscape.Edge, 0, totalEdges),
 		},
 	}
 	clusters := map[string]struct{}{}

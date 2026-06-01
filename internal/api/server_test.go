@@ -2,7 +2,9 @@ package api
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -11,10 +13,42 @@ import (
 	"testing"
 	"time"
 
+	"github.com/marz32one/kube-state-graph/pkg/cytoscape"
+
 	"github.com/marz32one/graph-api-gateway/internal/auth"
 	"github.com/marz32one/graph-api-gateway/internal/client"
 	"github.com/marz32one/graph-api-gateway/internal/config"
 )
+
+// fakeKSG is a test GraphBackend standing in for the in-process kube-state-graph
+// engine. It returns a canned body (or error) and ignores the query — the
+// in-process build is covered by kube-state-graph's pkg tests, so the gateway's
+// handler tests exercise only the pipeline (extract → switch → reconcile →
+// merge) and middleware.
+type fakeKSG struct {
+	body      *cytoscape.Body
+	err       error
+	probeErr  error
+	called    bool
+	lastQuery string
+}
+
+func (f *fakeKSG) FetchGraph(_ context.Context, q client.GraphQuery) (*cytoscape.Body, error) {
+	f.called = true
+	f.lastQuery = q.RawQuery
+	return f.body, f.err
+}
+
+func (f *fakeKSG) Probe(context.Context) error { return f.probeErr }
+
+func mustBody(t *testing.T, j string) *cytoscape.Body {
+	t.Helper()
+	var b cytoscape.Body
+	if err := json.Unmarshal([]byte(j), &b); err != nil {
+		t.Fatalf("parse fixture: %v", err)
+	}
+	return &b
+}
 
 type stubCapture struct {
 	rawQuery string
@@ -23,6 +57,7 @@ type stubCapture struct {
 	called   bool
 }
 
+// newStub stands up an httptest server for the (still HTTP) switch backend.
 func newStub(t *testing.T, body string, status int, capture *stubCapture) *httptest.Server {
 	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -40,19 +75,20 @@ func newStub(t *testing.T, body string, status int, capture *stubCapture) *httpt
 	return srv
 }
 
-func newTestServer(t *testing.T, primaryURL, switchURL string, logBuf io.Writer) *Server {
+// newTestServer wires a Server with the supplied (fake) primary backend and a
+// switch client pointed at switchURL.
+func newTestServer(t *testing.T, ksg client.GraphBackend, switchURL string, logBuf io.Writer) *Server {
 	t.Helper()
 	cfg := &config.Config{
 		ListenAddr: ":0",
 		LogLevel:   "debug",
 		LogFormat:  "json",
-		KSG:        config.Backend{BaseURL: primaryURL, Timeout: 2 * time.Second},
+		KSG:        config.KubeGraph{VictoriaMetricsURL: "http://vm:8428", BuildTimeout: 2 * time.Second},
 		Switch:     config.Backend{BaseURL: switchURL, Timeout: 2 * time.Second},
 	}
 	logger := slog.New(slog.NewJSONHandler(logBuf, &slog.HandlerOptions{Level: slog.LevelDebug}))
-	primary := client.NewKubeStateGraphClient(primaryURL, "", cfg.KSG.Timeout)
 	switchClient := client.NewSwitchGraphClient(switchURL, "", cfg.Switch.Timeout)
-	return New(cfg, logger, primary, switchClient, auth.NewKeySet())
+	return New(cfg, logger, ksg, switchClient, auth.NewKeySet())
 }
 
 // Primary response with a kube node that owns an IP, plus a pod (whose IP must NOT be forwarded).
@@ -64,9 +100,7 @@ const primaryWithIPs = `{
 			{"data": {"id": "prod/def", "type": "node", "ipaddress": ["10.0.0.2"]}},
 			{"data": {"id": "prod/pod1", "type": "pod", "ipaddress": ["10.1.0.5"]}}
 		],
-		"edges": [
-			{"data": {"id": "e-pod-node", "type": "pod-runs-on-node", "source": "prod/pod1", "target": "prod/abc"}}
-		]
+		"edges": []
 	}
 }`
 
@@ -94,10 +128,9 @@ const switchResponse = `{
 }`
 
 func TestGraphHandler_PrimaryAndSwitchSucceed_Reconciled(t *testing.T) {
-	pCap, sCap := &stubCapture{}, &stubCapture{}
-	primary := newStub(t, primaryWithIPs, 200, pCap)
+	sCap := &stubCapture{}
 	swSrv := newStub(t, switchResponse, 200, sCap)
-	s := newTestServer(t, primary.URL, swSrv.URL, io.Discard)
+	s := newTestServer(t, &fakeKSG{body: mustBody(t, primaryWithIPs)}, swSrv.URL, io.Discard)
 
 	req := httptest.NewRequest("GET", "/v1/graph?start=t1&end=t2", nil)
 	w := httptest.NewRecorder()
@@ -106,13 +139,11 @@ func TestGraphHandler_PrimaryAndSwitchSucceed_Reconciled(t *testing.T) {
 	if w.Code != 200 {
 		t.Fatalf("status: want 200, got %d, body=%s", w.Code, w.Body.String())
 	}
-
-	var got client.CytoscapeGraph
+	var got cytoscape.Body
 	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
 		t.Fatalf("decode: %v\n%s", err, w.Body.String())
 	}
 
-	// Nodes: prod/abc, prod/def, prod/pod1 from primary; switch:tor-1 from switch (sw-host:xyz dropped via reconcile).
 	ids := map[string]bool{}
 	for _, n := range got.Elements.Nodes {
 		ids[n.Data.ID] = true
@@ -126,7 +157,6 @@ func TestGraphHandler_PrimaryAndSwitchSucceed_Reconciled(t *testing.T) {
 		t.Errorf("switch shadow sw-host:xyz should have been collapsed, but appears in output")
 	}
 
-	// Edge from switch should point at kube node id, not the shadow id.
 	var found bool
 	for _, e := range got.Elements.Edges {
 		if e.Data.Type == "host-attached" && e.Data.Source == "prod/abc" && e.Data.Target == "switch:tor-1" {
@@ -141,9 +171,8 @@ func TestGraphHandler_PrimaryAndSwitchSucceed_Reconciled(t *testing.T) {
 
 func TestGraphHandler_SwitchReceivesDedupedIPBody(t *testing.T) {
 	sCap := &stubCapture{}
-	primary := newStub(t, primaryWithIPs, 200, nil)
 	swSrv := newStub(t, switchResponse, 200, sCap)
-	s := newTestServer(t, primary.URL, swSrv.URL, io.Discard)
+	s := newTestServer(t, &fakeKSG{body: mustBody(t, primaryWithIPs)}, swSrv.URL, io.Discard)
 
 	req := httptest.NewRequest("GET", "/v1/graph", nil)
 	w := httptest.NewRecorder()
@@ -177,9 +206,8 @@ func TestGraphHandler_SwitchReceivesDedupedIPBody(t *testing.T) {
 
 func TestGraphHandler_NoIPs_SwitchSkipped(t *testing.T) {
 	sCap := &stubCapture{}
-	primary := newStub(t, primaryNoIPs, 200, nil)
 	swSrv := newStub(t, switchResponse, 200, sCap)
-	s := newTestServer(t, primary.URL, swSrv.URL, io.Discard)
+	s := newTestServer(t, &fakeKSG{body: mustBody(t, primaryNoIPs)}, swSrv.URL, io.Discard)
 
 	req := httptest.NewRequest("GET", "/v1/graph", nil)
 	w := httptest.NewRecorder()
@@ -195,9 +223,8 @@ func TestGraphHandler_NoIPs_SwitchSkipped(t *testing.T) {
 
 func TestGraphHandler_PrimaryFails_NoSwitchCall_502(t *testing.T) {
 	sCap := &stubCapture{}
-	primary := newStub(t, "boom", 500, nil)
 	swSrv := newStub(t, switchResponse, 200, sCap)
-	s := newTestServer(t, primary.URL, swSrv.URL, io.Discard)
+	s := newTestServer(t, &fakeKSG{err: errors.New("boom")}, swSrv.URL, io.Discard)
 
 	req := httptest.NewRequest("GET", "/v1/graph", nil)
 	w := httptest.NewRecorder()
@@ -212,9 +239,8 @@ func TestGraphHandler_PrimaryFails_NoSwitchCall_502(t *testing.T) {
 }
 
 func TestGraphHandler_SwitchFails_502(t *testing.T) {
-	primary := newStub(t, primaryWithIPs, 200, nil)
 	swSrv := newStub(t, "boom", 500, nil)
-	s := newTestServer(t, primary.URL, swSrv.URL, io.Discard)
+	s := newTestServer(t, &fakeKSG{body: mustBody(t, primaryWithIPs)}, swSrv.URL, io.Discard)
 
 	req := httptest.NewRequest("GET", "/v1/graph", nil)
 	w := httptest.NewRecorder()
@@ -233,12 +259,12 @@ func TestGraphHandler_SwitchFails_502(t *testing.T) {
 }
 
 func TestGraphHandler_InboundQueryForwardedToPrimaryOnly(t *testing.T) {
-	pCap, sCap := &stubCapture{}, &stubCapture{}
-	primary := newStub(t, primaryWithIPs, 200, pCap)
+	sCap := &stubCapture{}
 	swSrv := newStub(t, switchResponse, 200, sCap)
-	s := newTestServer(t, primary.URL, swSrv.URL, io.Discard)
+	ksg := &fakeKSG{body: mustBody(t, primaryWithIPs)}
+	s := newTestServer(t, ksg, swSrv.URL, io.Discard)
 
-	const inboundQ = "cluster=prod&namespace=ns1&edge_type=pod-runs-on-node"
+	const inboundQ = "cluster=prod&namespace=ns1&edge_type=pod-calls-pod"
 	req := httptest.NewRequest("GET", "/v1/graph?"+inboundQ, nil)
 	w := httptest.NewRecorder()
 	s.Handler().ServeHTTP(w, req)
@@ -246,8 +272,8 @@ func TestGraphHandler_InboundQueryForwardedToPrimaryOnly(t *testing.T) {
 	if w.Code != 200 {
 		t.Fatalf("status: want 200, got %d", w.Code)
 	}
-	if pCap.rawQuery != inboundQ {
-		t.Errorf("primary query: want %q, got %q", inboundQ, pCap.rawQuery)
+	if ksg.lastQuery != inboundQ {
+		t.Errorf("primary query: want %q, got %q", inboundQ, ksg.lastQuery)
 	}
 	// The switch is queried via POST with an IP-only body — none of the inbound
 	// query params (forwarded only to primary) must leak into its request.
@@ -262,10 +288,9 @@ func TestGraphHandler_InboundQueryForwardedToPrimaryOnly(t *testing.T) {
 }
 
 func TestGraphHandler_RequestIDEchoedAndLogged(t *testing.T) {
-	primary := newStub(t, primaryWithIPs, 200, nil)
 	swSrv := newStub(t, switchResponse, 200, nil)
 	var logBuf bytes.Buffer
-	s := newTestServer(t, primary.URL, swSrv.URL, &logBuf)
+	s := newTestServer(t, &fakeKSG{body: mustBody(t, primaryWithIPs)}, swSrv.URL, &logBuf)
 
 	const inboundID = "abc-123"
 	req := httptest.NewRequest("GET", "/v1/graph", nil)
@@ -282,9 +307,8 @@ func TestGraphHandler_RequestIDEchoedAndLogged(t *testing.T) {
 }
 
 func TestRequestIDMiddleware_GeneratesWhenMissing(t *testing.T) {
-	primary := newStub(t, primaryWithIPs, 200, nil)
 	swSrv := newStub(t, switchResponse, 200, nil)
-	s := newTestServer(t, primary.URL, swSrv.URL, io.Discard)
+	s := newTestServer(t, &fakeKSG{body: mustBody(t, primaryWithIPs)}, swSrv.URL, io.Discard)
 
 	req := httptest.NewRequest("GET", "/v1/graph", nil)
 	w := httptest.NewRecorder()
@@ -324,9 +348,8 @@ func TestValidRequestID(t *testing.T) {
 }
 
 func TestRequestIDMiddleware_RejectsMalformedInbound(t *testing.T) {
-	primary := newStub(t, primaryWithIPs, 200, nil)
 	swSrv := newStub(t, switchResponse, 200, nil)
-	s := newTestServer(t, primary.URL, swSrv.URL, io.Discard)
+	s := newTestServer(t, &fakeKSG{body: mustBody(t, primaryWithIPs)}, swSrv.URL, io.Discard)
 
 	req := httptest.NewRequest("GET", "/v1/graph", nil)
 	req.Header.Set("X-Request-ID", "bad id with space")
@@ -343,10 +366,9 @@ func TestRequestIDMiddleware_RejectsMalformedInbound(t *testing.T) {
 }
 
 func TestReadyz_BackendUnreachable(t *testing.T) {
-	// primary stub is up; switch URL points at an unroutable address so its
-	// probe must fail within the 1.5s probe budget.
-	primary := newStub(t, primaryWithIPs, 200, nil)
-	s := newTestServer(t, primary.URL, "http://127.0.0.1:1", io.Discard)
+	// The fake primary probes healthy; the switch URL points at an unroutable
+	// address so its probe must fail within the 1.5s probe budget.
+	s := newTestServer(t, &fakeKSG{}, "http://127.0.0.1:1", io.Discard)
 
 	req := httptest.NewRequest("GET", "/readyz", nil)
 	w := httptest.NewRecorder()
@@ -361,9 +383,8 @@ func TestReadyz_BackendUnreachable(t *testing.T) {
 }
 
 func TestHealth(t *testing.T) {
-	primary := newStub(t, primaryWithIPs, 200, nil)
 	swSrv := newStub(t, switchResponse, 200, nil)
-	s := newTestServer(t, primary.URL, swSrv.URL, io.Discard)
+	s := newTestServer(t, &fakeKSG{}, swSrv.URL, io.Discard)
 
 	for _, path := range []string{"/livez", "/readyz"} {
 		req := httptest.NewRequest("GET", path, nil)

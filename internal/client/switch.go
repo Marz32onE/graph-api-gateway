@@ -3,6 +3,8 @@ package client
 import (
 	"context"
 	"time"
+
+	"github.com/marz32one/kube-state-graph/pkg/cytoscape"
 )
 
 // ipRequest is one element of the switch backend's batched request body. The
@@ -30,7 +32,7 @@ func NewSwitchGraphClient(baseURL, apiKey string, timeout time.Duration) *Switch
 // POST {baseURL}/v1/graph call whose body is `[{"ip":"<addr>"},…]`. The IP
 // order is preserved from ips. Callers skip this stage entirely when no IPs
 // were collected; invoking it with an empty slice still posts an empty array.
-func (c *SwitchGraphClient) FetchGraphByIPs(ctx context.Context, ips []string) (*CytoscapeGraph, error) {
+func (c *SwitchGraphClient) FetchGraphByIPs(ctx context.Context, ips []string) (*cytoscape.Body, error) {
 	body := make([]ipRequest, len(ips))
 	for i, ip := range ips {
 		body[i] = ipRequest{IP: ip}

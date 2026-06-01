@@ -1,7 +1,7 @@
 {
     "components": {
         "schemas": {
-            "github_com_marz32one_graph-api-gateway_internal_client.CytoscapeGraph": {
+            "cytoscape.Body": {
                 "properties": {
                     "apiVersion": {
                         "type": "string"
@@ -14,20 +14,20 @@
                         "uniqueItems": false
                     },
                     "elements": {
-                        "$ref": "#/components/schemas/github_com_marz32one_graph-api-gateway_internal_client.Elements"
+                        "$ref": "#/components/schemas/cytoscape.Elements"
                     }
                 },
                 "type": "object"
             },
-            "github_com_marz32one_graph-api-gateway_internal_client.Edge": {
+            "cytoscape.Edge": {
                 "properties": {
                     "data": {
-                        "$ref": "#/components/schemas/github_com_marz32one_graph-api-gateway_internal_client.EdgeData"
+                        "$ref": "#/components/schemas/cytoscape.EdgeData"
                     }
                 },
                 "type": "object"
             },
-            "github_com_marz32one_graph-api-gateway_internal_client.EdgeData": {
+            "cytoscape.EdgeData": {
                 "properties": {
                     "id": {
                         "type": "string"
@@ -50,18 +50,18 @@
                 },
                 "type": "object"
             },
-            "github_com_marz32one_graph-api-gateway_internal_client.Elements": {
+            "cytoscape.Elements": {
                 "properties": {
                     "edges": {
                         "items": {
-                            "$ref": "#/components/schemas/github_com_marz32one_graph-api-gateway_internal_client.Edge"
+                            "$ref": "#/components/schemas/cytoscape.Edge"
                         },
                         "type": "array",
                         "uniqueItems": false
                     },
                     "nodes": {
                         "items": {
-                            "$ref": "#/components/schemas/github_com_marz32one_graph-api-gateway_internal_client.Node"
+                            "$ref": "#/components/schemas/cytoscape.Node"
                         },
                         "type": "array",
                         "uniqueItems": false
@@ -69,15 +69,15 @@
                 },
                 "type": "object"
             },
-            "github_com_marz32one_graph-api-gateway_internal_client.Node": {
+            "cytoscape.Node": {
                 "properties": {
                     "data": {
-                        "$ref": "#/components/schemas/github_com_marz32one_graph-api-gateway_internal_client.NodeData"
+                        "$ref": "#/components/schemas/cytoscape.NodeData"
                     }
                 },
                 "type": "object"
             },
-            "github_com_marz32one_graph-api-gateway_internal_client.NodeData": {
+            "cytoscape.NodeData": {
                 "properties": {
                     "id": {
                         "type": "string"
@@ -126,7 +126,7 @@
         }
     },
     "info": {
-        "description": "HTTP gateway that runs a sequential pipeline: (1) fetch the kube-state-graph response with the inbound query, (2) extract `data.ipaddress` from every `node`-type entry, (3) if any IPs were collected, POST those IPs to the switch backend batched as a single `[{\"ip\":…}]` JSON body, (4) re-anchor switch shadow nodes onto kube node IDs via IP match, (5) merge into a single Cytoscape.js envelope. Emits structured logs via slog. Any backend failure returns `502`.\n\n**Authentication.** When the gateway is started with API keys configured (`API_KEYS` or `API_KEYS_FILE`), every request to `/v1/*` MUST carry an `X-API-Key: \u003ckey\u003e` header. Missing or invalid keys yield `401 Unauthorized`. Health probes (`/livez`, `/readyz`), the OpenAPI spec (`/openapi.*`), and the Swagger UI (`/docs/*`) are exempt and require no key.",
+        "description": "HTTP gateway that runs a sequential pipeline: (1) build the kube-state-graph graph in-process from the inbound query (an embedded engine querying VictoriaMetrics directly), (2) extract `data.ipaddress` from every `node`-type entry, (3) if any IPs were collected, POST those IPs to the switch backend batched as a single `[{\"ip\":…}]` JSON body, (4) re-anchor switch shadow nodes onto kube node IDs via IP match, (5) merge into a single Cytoscape.js envelope. Emits structured logs via slog. Any backend failure returns `502`.\n\n**Authentication.** When the gateway is started with API keys configured (`API_KEYS` or `API_KEYS_FILE`), every request to `/v1/*` MUST carry an `X-API-Key: \u003ckey\u003e` header. Missing or invalid keys yield `401 Unauthorized`. Health probes (`/livez`, `/readyz`), the OpenAPI spec (`/openapi.*`), and the Swagger UI (`/docs/*`) are exempt and require no key.",
         "title": "graph-api-gateway",
         "version": "v1"
     },
@@ -207,7 +207,7 @@
         },
         "/v1/graph": {
             "get": {
-                "description": "Runs a sequential pipeline: (1) forward the inbound query to kube-state-graph and parse the Cytoscape response; (2) collect `data.ipaddress` from every `node`-type entry; (3) if any IPs were collected, call the switch backend as `POST /v1/graph` with a JSON body `[{\"ip\":\"\u003ca\u003e\"},{\"ip\":\"\u003cb\u003e\"}]` (all IPs batched into one request); (4) re-anchor the switch graph onto kube node IDs by matching `data.ipaddress` (switch shadow nodes are dropped, their edge references rewritten); (5) merge primary + reconciled switch (union nodes by `data.id` with kube winning, dedup edges by `(type,source,target)`). Any stage failure returns `502`.",
+                "description": "Runs a sequential pipeline: (1) build the kube-state-graph graph in-process from the inbound query (an embedded engine querying VictoriaMetrics directly — no HTTP hop); (2) collect `data.ipaddress` from every `node`-type entry; (3) if any IPs were collected, call the switch backend as `POST /v1/graph` with a JSON body `[{\"ip\":\"\u003ca\u003e\"},{\"ip\":\"\u003cb\u003e\"}]` (all IPs batched into one request); (4) re-anchor the switch graph onto kube node IDs by matching `data.ipaddress` (switch shadow nodes are dropped, their edge references rewritten); (5) merge primary + reconciled switch (union nodes by `data.id` with kube winning, dedup edges by `(type,source,target)`). Any stage failure returns `502`.",
                 "parameters": [
                     {
                         "description": "Window start (RFC 3339 or Unix seconds) — forwarded to kube-state-graph",
@@ -287,7 +287,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/github_com_marz32one_graph-api-gateway_internal_client.CytoscapeGraph"
+                                    "$ref": "#/components/schemas/cytoscape.Body"
                                 }
                             }
                         },

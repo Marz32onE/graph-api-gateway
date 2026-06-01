@@ -2,7 +2,7 @@
 //
 //	@title			graph-api-gateway
 //	@version		v1
-//	@description	HTTP gateway that runs a sequential pipeline: (1) fetch the kube-state-graph response with the inbound query, (2) extract `data.ipaddress` from every `node`-type entry, (3) if any IPs were collected, POST those IPs to the switch backend batched as a single `[{"ip":…}]` JSON body, (4) re-anchor switch shadow nodes onto kube node IDs via IP match, (5) merge into a single Cytoscape.js envelope. Emits structured logs via slog. Any backend failure returns `502`.
+//	@description	HTTP gateway that runs a sequential pipeline: (1) build the kube-state-graph graph in-process from the inbound query (an embedded engine querying VictoriaMetrics directly), (2) extract `data.ipaddress` from every `node`-type entry, (3) if any IPs were collected, POST those IPs to the switch backend batched as a single `[{"ip":…}]` JSON body, (4) re-anchor switch shadow nodes onto kube node IDs via IP match, (5) merge into a single Cytoscape.js envelope. Emits structured logs via slog. Any backend failure returns `502`.
 //	@description
 //	@description	**Authentication.** When the gateway is started with API keys configured (`API_KEYS` or `API_KEYS_FILE`), every request to `/v1/*` MUST carry an `X-API-Key: <key>` header. Missing or invalid keys yield `401 Unauthorized`. Health probes (`/livez`, `/readyz`), the OpenAPI spec (`/openapi.*`), and the Swagger UI (`/docs/*`) are exempt and require no key.
 //	@BasePath		/
@@ -63,7 +63,10 @@ func run() error {
 		go reloadAPIKeys(ctx, keys, cfg.APIKeysFile, cfg.APIKeysReloadInterval, logger)
 	}
 
-	ksg := client.NewKubeStateGraphClient(cfg.KSG.BaseURL, cfg.KSG.APIKey, cfg.KSG.Timeout)
+	ksg, err := client.NewKubeStateGraphClient(cfg.KSG.VictoriaMetricsURL, cfg.KSG.MetricPrefix, cfg.KSG.BuildTimeout)
+	if err != nil {
+		return fmt.Errorf("kube-state-graph engine: %w", err)
+	}
 	switchClient := client.NewSwitchGraphClient(cfg.Switch.BaseURL, cfg.Switch.APIKey, cfg.Switch.Timeout)
 
 	srv := &http.Server{

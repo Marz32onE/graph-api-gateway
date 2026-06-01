@@ -3,7 +3,7 @@ package pipeline
 import (
 	"slices"
 
-	"github.com/marz32one/graph-api-gateway/internal/client"
+	"github.com/marz32one/kube-state-graph/pkg/cytoscape"
 )
 
 // ReconcileSwitch re-anchors the switch graph onto primary's K8s node IDs by
@@ -19,7 +19,7 @@ import (
 //
 // Pure: inputs are never mutated; the returned graph holds value copies.
 // Returns nil when switchGraph is nil.
-func ReconcileSwitch(primary, switchGraph *client.CytoscapeGraph) *client.CytoscapeGraph {
+func ReconcileSwitch(primary, switchGraph *cytoscape.Body) *cytoscape.Body {
 	if switchGraph == nil {
 		return nil
 	}
@@ -48,12 +48,12 @@ func ReconcileSwitch(primary, switchGraph *client.CytoscapeGraph) *client.Cytosc
 	// Clusters are passed through so Merge can union switch-only clusters with
 	// the kube side. slices.Clone keeps the "inputs are not mutated" contract.
 	clusters := slices.Clone(switchGraph.Clusters)
-	out := &client.CytoscapeGraph{
+	out := &cytoscape.Body{
 		APIVersion: switchGraph.APIVersion,
 		Clusters:   clusters,
-		Elements: client.Elements{
-			Nodes: make([]client.Node, 0, len(switchGraph.Elements.Nodes)),
-			Edges: make([]client.Edge, 0, len(switchGraph.Elements.Edges)),
+		Elements: cytoscape.Elements{
+			Nodes: make([]cytoscape.Node, 0, len(switchGraph.Elements.Nodes)),
+			Edges: make([]cytoscape.Edge, 0, len(switchGraph.Elements.Edges)),
 		},
 	}
 	for _, n := range switchGraph.Elements.Nodes {

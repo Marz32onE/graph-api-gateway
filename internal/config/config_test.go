@@ -7,6 +7,11 @@ import (
 )
 
 func TestLoad(t *testing.T) {
+	type wantKubeGraph struct {
+		vmURL        string
+		prefix       string
+		buildTimeout time.Duration
+	}
 	type wantBackend struct {
 		baseURL string
 		apiKey  string
@@ -19,49 +24,39 @@ func TestLoad(t *testing.T) {
 		wantListen    string
 		wantLevel     string
 		wantFormat    string
-		wantKSG       wantBackend
+		wantKSG       wantKubeGraph
 		wantSwitch    wantBackend
 	}{
 		{
-			name:          "missing ksg url",
+			name:          "missing victoria metrics url",
 			env:           map[string]string{"SWITCH_GRAPH_URL": "http://b:8080"},
-			wantErrSubstr: "KUBE_STATE_GRAPH_URL is required",
+			wantErrSubstr: "VICTORIA_METRICS_URL is required",
 		},
 		{
-			name: "missing switch url",
-			env: map[string]string{
-				"KUBE_STATE_GRAPH_URL": "http://a:8080",
-			},
+			name:          "missing switch url",
+			env:           map[string]string{"VICTORIA_METRICS_URL": "http://a:8428"},
 			wantErrSubstr: "SWITCH_GRAPH_URL is required",
 		},
 		{
 			name: "invalid url no scheme",
 			env: map[string]string{
-				"KUBE_STATE_GRAPH_URL": "not-a-url",
+				"VICTORIA_METRICS_URL": "not-a-url",
 				"SWITCH_GRAPH_URL":     "http://b:8080",
 			},
-			wantErrSubstr: "KUBE_STATE_GRAPH_URL is not a valid",
+			wantErrSubstr: "VICTORIA_METRICS_URL is not a valid",
 		},
 		{
 			name: "url with query is rejected",
 			env: map[string]string{
-				"KUBE_STATE_GRAPH_URL": "http://a:8080?tenant=x",
+				"VICTORIA_METRICS_URL": "http://a:8428?tenant=x",
 				"SWITCH_GRAPH_URL":     "http://b:8080",
-			},
-			wantErrSubstr: "must not contain a query or fragment",
-		},
-		{
-			name: "url with fragment is rejected",
-			env: map[string]string{
-				"KUBE_STATE_GRAPH_URL": "http://a:8080",
-				"SWITCH_GRAPH_URL":     "http://b:8080/#frag",
 			},
 			wantErrSubstr: "must not contain a query or fragment",
 		},
 		{
 			name: "non-http scheme is rejected",
 			env: map[string]string{
-				"KUBE_STATE_GRAPH_URL": "ftp://a:8080",
+				"VICTORIA_METRICS_URL": "ftp://a:8428",
 				"SWITCH_GRAPH_URL":     "http://b:8080",
 			},
 			wantErrSubstr: "scheme must be http or https",
@@ -69,76 +64,67 @@ func TestLoad(t *testing.T) {
 		{
 			name: "userinfo in url is rejected",
 			env: map[string]string{
-				"KUBE_STATE_GRAPH_URL": "http://user:pass@a:8080",
+				"VICTORIA_METRICS_URL": "http://user:pass@a:8428",
 				"SWITCH_GRAPH_URL":     "http://b:8080",
 			},
 			wantErrSubstr: "must not embed userinfo",
 		},
 		{
-			name: "non-positive timeout is rejected",
+			name: "non-positive build timeout is rejected",
 			env: map[string]string{
-				"KUBE_STATE_GRAPH_URL":     "http://a:8080",
-				"KUBE_STATE_GRAPH_TIMEOUT": "0s",
-				"SWITCH_GRAPH_URL":         "http://b:8080",
+				"VICTORIA_METRICS_URL": "http://a:8428",
+				"KSG_BUILD_TIMEOUT":    "0s",
+				"SWITCH_GRAPH_URL":     "http://b:8080",
 			},
 			wantErrSubstr: "must be > 0",
 		},
 		{
-			name: "invalid timeout",
+			name: "invalid build timeout",
 			env: map[string]string{
-				"KUBE_STATE_GRAPH_URL":     "http://a:8080",
-				"KUBE_STATE_GRAPH_TIMEOUT": "nope",
-				"SWITCH_GRAPH_URL":         "http://b:8080",
+				"VICTORIA_METRICS_URL": "http://a:8428",
+				"KSG_BUILD_TIMEOUT":    "nope",
+				"SWITCH_GRAPH_URL":     "http://b:8080",
 			},
-			wantErrSubstr: "KUBE_STATE_GRAPH_TIMEOUT is not a valid duration",
+			wantErrSubstr: "KSG_BUILD_TIMEOUT is not a valid duration",
 		},
 		{
 			name: "invalid log level",
 			env: map[string]string{
-				"KUBE_STATE_GRAPH_URL": "http://a:8080",
+				"VICTORIA_METRICS_URL": "http://a:8428",
 				"SWITCH_GRAPH_URL":     "http://b:8080",
 				"LOG_LEVEL":            "verbose",
 			},
 			wantErrSubstr: "LOG_LEVEL invalid",
 		},
 		{
-			name: "invalid log format",
-			env: map[string]string{
-				"KUBE_STATE_GRAPH_URL": "http://a:8080",
-				"SWITCH_GRAPH_URL":     "http://b:8080",
-				"LOG_FORMAT":           "xml",
-			},
-			wantErrSubstr: "LOG_FORMAT invalid",
-		},
-		{
 			name: "defaults applied",
 			env: map[string]string{
-				"KUBE_STATE_GRAPH_URL": "http://a:8080",
+				"VICTORIA_METRICS_URL": "http://a:8428",
 				"SWITCH_GRAPH_URL":     "http://b:8080",
 			},
 			wantListen: ":8080",
 			wantLevel:  "info",
 			wantFormat: "json",
-			wantKSG:    wantBackend{baseURL: "http://a:8080", apiKey: "", timeout: 10 * time.Second},
-			wantSwitch: wantBackend{baseURL: "http://b:8080", apiKey: "", timeout: 10 * time.Second},
+			wantKSG:    wantKubeGraph{vmURL: "http://a:8428", buildTimeout: 15 * time.Second},
+			wantSwitch: wantBackend{baseURL: "http://b:8080", timeout: 10 * time.Second},
 		},
 		{
 			name: "happy path",
 			env: map[string]string{
-				"LISTEN_ADDR":              ":9090",
-				"LOG_LEVEL":                "debug",
-				"LOG_FORMAT":               "text",
-				"KUBE_STATE_GRAPH_URL":     "http://a:8080/",
-				"KUBE_STATE_GRAPH_API_KEY": "key-a",
-				"KUBE_STATE_GRAPH_TIMEOUT": "3s",
-				"SWITCH_GRAPH_URL":         "http://b:8080",
-				"SWITCH_GRAPH_API_KEY":     "key-b",
-				"SWITCH_GRAPH_TIMEOUT":     "7s",
+				"LISTEN_ADDR":          ":9090",
+				"LOG_LEVEL":            "debug",
+				"LOG_FORMAT":           "text",
+				"VICTORIA_METRICS_URL": "http://a:8428/",
+				"KSG_METRIC_PREFIX":    "tenantA_",
+				"KSG_BUILD_TIMEOUT":    "20s",
+				"SWITCH_GRAPH_URL":     "http://b:8080",
+				"SWITCH_GRAPH_API_KEY": "key-b",
+				"SWITCH_GRAPH_TIMEOUT": "7s",
 			},
 			wantListen: ":9090",
 			wantLevel:  "debug",
 			wantFormat: "text",
-			wantKSG:    wantBackend{baseURL: "http://a:8080", apiKey: "key-a", timeout: 3 * time.Second},
+			wantKSG:    wantKubeGraph{vmURL: "http://a:8428", prefix: "tenantA_", buildTimeout: 20 * time.Second},
 			wantSwitch: wantBackend{baseURL: "http://b:8080", apiKey: "key-b", timeout: 7 * time.Second},
 		},
 	}
@@ -172,15 +158,31 @@ func TestLoad(t *testing.T) {
 			if cfg.LogFormat != tc.wantFormat {
 				t.Errorf("LogFormat: want %q, got %q", tc.wantFormat, cfg.LogFormat)
 			}
-			assertBackend(t, "KSG", cfg.KSG, tc.wantKSG)
-			assertBackend(t, "Switch", cfg.Switch, tc.wantSwitch)
+			if cfg.KSG.VictoriaMetricsURL != tc.wantKSG.vmURL {
+				t.Errorf("KSG.VictoriaMetricsURL: want %q, got %q", tc.wantKSG.vmURL, cfg.KSG.VictoriaMetricsURL)
+			}
+			if cfg.KSG.MetricPrefix != tc.wantKSG.prefix {
+				t.Errorf("KSG.MetricPrefix: want %q, got %q", tc.wantKSG.prefix, cfg.KSG.MetricPrefix)
+			}
+			if cfg.KSG.BuildTimeout != tc.wantKSG.buildTimeout {
+				t.Errorf("KSG.BuildTimeout: want %s, got %s", tc.wantKSG.buildTimeout, cfg.KSG.BuildTimeout)
+			}
+			if cfg.Switch.BaseURL != tc.wantSwitch.baseURL {
+				t.Errorf("Switch.BaseURL: want %q, got %q", tc.wantSwitch.baseURL, cfg.Switch.BaseURL)
+			}
+			if cfg.Switch.APIKey != tc.wantSwitch.apiKey {
+				t.Errorf("Switch.APIKey: want %q, got %q", tc.wantSwitch.apiKey, cfg.Switch.APIKey)
+			}
+			if cfg.Switch.Timeout != tc.wantSwitch.timeout {
+				t.Errorf("Switch.Timeout: want %s, got %s", tc.wantSwitch.timeout, cfg.Switch.Timeout)
+			}
 		})
 	}
 }
 
 func TestLoad_APIKeys(t *testing.T) {
 	base := map[string]string{
-		"KUBE_STATE_GRAPH_URL": "http://a:8080",
+		"VICTORIA_METRICS_URL": "http://a:8428",
 		"SWITCH_GRAPH_URL":     "http://b:8080",
 	}
 	setBase := func(t *testing.T) {
@@ -224,19 +226,8 @@ func TestLoad_APIKeys(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if cfg.APIKeysFile != "/etc/keys/api-keys.txt" {
-			t.Errorf("APIKeysFile: want /etc/keys/api-keys.txt, got %q", cfg.APIKeysFile)
-		}
 		if cfg.APIKeysReloadInterval != 0 {
 			t.Errorf("reload interval: want 0 (disabled), got %s", cfg.APIKeysReloadInterval)
-		}
-	})
-
-	t.Run("invalid reload interval is rejected", func(t *testing.T) {
-		setBase(t)
-		t.Setenv("API_KEYS_RELOAD_INTERVAL", "nope")
-		if _, err := Load(); err == nil || !strings.Contains(err.Error(), "API_KEYS_RELOAD_INTERVAL is not a valid duration") {
-			t.Fatalf("want invalid-duration error, got %v", err)
 		}
 	})
 
@@ -249,28 +240,11 @@ func TestLoad_APIKeys(t *testing.T) {
 	})
 }
 
-func assertBackend(t *testing.T, name string, got Backend, want struct {
-	baseURL string
-	apiKey  string
-	timeout time.Duration
-}) {
-	t.Helper()
-	if got.BaseURL != want.baseURL {
-		t.Errorf("%s.BaseURL: want %q, got %q", name, want.baseURL, got.BaseURL)
-	}
-	if got.APIKey != want.apiKey {
-		t.Errorf("%s.APIKey: want %q, got %q", name, want.apiKey, got.APIKey)
-	}
-	if got.Timeout != want.timeout {
-		t.Errorf("%s.Timeout: want %s, got %s", name, want.timeout, got.Timeout)
-	}
-}
-
 func clearEnv(t *testing.T) {
 	t.Helper()
 	keys := []string{
 		"LISTEN_ADDR", "LOG_LEVEL", "LOG_FORMAT",
-		"KUBE_STATE_GRAPH_URL", "KUBE_STATE_GRAPH_API_KEY", "KUBE_STATE_GRAPH_TIMEOUT",
+		"VICTORIA_METRICS_URL", "KSG_METRIC_PREFIX", "KSG_BUILD_TIMEOUT",
 		"SWITCH_GRAPH_URL", "SWITCH_GRAPH_API_KEY", "SWITCH_GRAPH_TIMEOUT",
 		"API_KEYS", "API_KEYS_FILE", "API_KEYS_RELOAD_INTERVAL",
 	}

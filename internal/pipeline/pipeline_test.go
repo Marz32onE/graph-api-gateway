@@ -4,26 +4,26 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/marz32one/graph-api-gateway/internal/client"
+	"github.com/marz32one/kube-state-graph/pkg/cytoscape"
 )
 
-func node(id, typ string, ips ...string) client.Node {
-	return client.Node{Data: client.NodeData{ID: id, Type: typ, IPAddress: ips}}
+func node(id, typ string, ips ...string) cytoscape.Node {
+	return cytoscape.Node{Data: cytoscape.NodeData{ID: id, Type: typ, IPAddress: ips}}
 }
-func edge(typ, src, tgt string) client.Edge {
-	return client.Edge{Data: client.EdgeData{Type: typ, Source: src, Target: tgt}}
+func edge(typ, src, tgt string) cytoscape.Edge {
+	return cytoscape.Edge{Data: cytoscape.EdgeData{Type: typ, Source: src, Target: tgt}}
 }
-func graph(nodes []client.Node, edges []client.Edge) *client.CytoscapeGraph {
-	return &client.CytoscapeGraph{
+func graph(nodes []cytoscape.Node, edges []cytoscape.Edge) *cytoscape.Body {
+	return &cytoscape.Body{
 		APIVersion: "v1",
-		Elements:   client.Elements{Nodes: nodes, Edges: edges},
+		Elements:   cytoscape.Elements{Nodes: nodes, Edges: edges},
 	}
 }
 
 func TestExtractIPs(t *testing.T) {
 	tests := []struct {
 		name string
-		in   *client.CytoscapeGraph
+		in   *cytoscape.Body
 		want []string
 	}{
 		{
@@ -33,7 +33,7 @@ func TestExtractIPs(t *testing.T) {
 		},
 		{
 			name: "node-only collection",
-			in: graph([]client.Node{
+			in: graph([]cytoscape.Node{
 				node("n1", "node", "10.0.0.1", "10.0.0.2"),
 				node("p1", "pod", "10.1.0.5"),
 				node("v1", "pvc", "192.168.0.1"),
@@ -43,7 +43,7 @@ func TestExtractIPs(t *testing.T) {
 		},
 		{
 			name: "duplicates across multiple nodes collapse",
-			in: graph([]client.Node{
+			in: graph([]cytoscape.Node{
 				node("n1", "node", "10.0.0.1"),
 				node("n2", "node", "10.0.0.1", "10.0.0.2"),
 			}, nil),
@@ -51,7 +51,7 @@ func TestExtractIPs(t *testing.T) {
 		},
 		{
 			name: "empty/nil ipaddress skipped",
-			in: graph([]client.Node{
+			in: graph([]cytoscape.Node{
 				node("n1", "node"),
 				node("n2", "node", ""),
 				node("n3", "node", "10.0.0.1"),
@@ -60,7 +60,7 @@ func TestExtractIPs(t *testing.T) {
 		},
 		{
 			name: "insertion order preserved across entries",
-			in: graph([]client.Node{
+			in: graph([]cytoscape.Node{
 				node("nA", "node", "10.0.0.3"),
 				node("nB", "node", "10.0.0.1", "10.0.0.2"),
 			}, nil),
@@ -68,7 +68,7 @@ func TestExtractIPs(t *testing.T) {
 		},
 		{
 			name: "no eligible entries returns empty",
-			in: graph([]client.Node{
+			in: graph([]cytoscape.Node{
 				node("p1", "pod", "10.1.0.5"),
 			}, nil),
 			want: []string{},
@@ -85,7 +85,7 @@ func TestExtractIPs(t *testing.T) {
 }
 
 func TestExtractIPs_DoesNotMutate(t *testing.T) {
-	g := graph([]client.Node{node("n1", "node", "10.0.0.1")}, nil)
+	g := graph([]cytoscape.Node{node("n1", "node", "10.0.0.1")}, nil)
 	before := *g
 	beforeElements := g.Elements
 	beforeIPs := append([]string(nil), g.Elements.Nodes[0].Data.IPAddress...)
@@ -101,18 +101,18 @@ func TestExtractIPs_DoesNotMutate(t *testing.T) {
 }
 
 func TestReconcileSwitch(t *testing.T) {
-	primary := graph([]client.Node{
+	primary := graph([]cytoscape.Node{
 		node("prod/abc", "node", "10.0.0.1", "10.0.0.2"),
 		node("prod/def", "node", "10.0.0.5"),
 	}, nil)
 
 	t.Run("shadow collapses onto kube node and edges rewrite", func(t *testing.T) {
 		sw := graph(
-			[]client.Node{
-				{Data: client.NodeData{ID: "sw-host:xyz", Type: "host", IPAddress: []string{"10.0.0.1"}}},
-				{Data: client.NodeData{ID: "switch:tor-1", Type: "switch"}},
+			[]cytoscape.Node{
+				{Data: cytoscape.NodeData{ID: "sw-host:xyz", Type: "host", IPAddress: []string{"10.0.0.1"}}},
+				{Data: cytoscape.NodeData{ID: "switch:tor-1", Type: "switch"}},
 			},
-			[]client.Edge{
+			[]cytoscape.Edge{
 				edge("host-attached", "sw-host:xyz", "switch:tor-1"),
 			},
 		)
@@ -134,7 +134,7 @@ func TestReconcileSwitch(t *testing.T) {
 
 	t.Run("switch-only nodes preserved", func(t *testing.T) {
 		sw := graph(
-			[]client.Node{{Data: client.NodeData{ID: "switch:tor-1", Type: "switch"}}},
+			[]cytoscape.Node{{Data: cytoscape.NodeData{ID: "switch:tor-1", Type: "switch"}}},
 			nil,
 		)
 		out := ReconcileSwitch(primary, sw)
@@ -145,10 +145,10 @@ func TestReconcileSwitch(t *testing.T) {
 
 	t.Run("foreign-IP shadow stays as orphan with original ID", func(t *testing.T) {
 		sw := graph(
-			[]client.Node{
-				{Data: client.NodeData{ID: "sw-host:foreign", Type: "host", IPAddress: []string{"172.31.99.99"}}},
+			[]cytoscape.Node{
+				{Data: cytoscape.NodeData{ID: "sw-host:foreign", Type: "host", IPAddress: []string{"172.31.99.99"}}},
 			},
-			[]client.Edge{edge("host-attached", "sw-host:foreign", "switch:tor-9")},
+			[]cytoscape.Edge{edge("host-attached", "sw-host:foreign", "switch:tor-9")},
 		)
 		out := ReconcileSwitch(primary, sw)
 		if len(out.Elements.Nodes) != 1 || out.Elements.Nodes[0].Data.ID != "sw-host:foreign" {
@@ -161,10 +161,10 @@ func TestReconcileSwitch(t *testing.T) {
 
 	t.Run("multi-IP kube node matches via any of its IPs", func(t *testing.T) {
 		sw := graph(
-			[]client.Node{
-				{Data: client.NodeData{ID: "sw-host:xyz", IPAddress: []string{"10.0.0.2"}}},
+			[]cytoscape.Node{
+				{Data: cytoscape.NodeData{ID: "sw-host:xyz", IPAddress: []string{"10.0.0.2"}}},
 			},
-			[]client.Edge{edge("host-attached", "sw-host:xyz", "switch:tor-1")},
+			[]cytoscape.Edge{edge("host-attached", "sw-host:xyz", "switch:tor-1")},
 		)
 		out := ReconcileSwitch(primary, sw)
 		if out.Elements.Edges[0].Data.Source != "prod/abc" {
@@ -179,10 +179,10 @@ func TestReconcileSwitch(t *testing.T) {
 	})
 
 	t.Run("inputs not mutated", func(t *testing.T) {
-		p := graph([]client.Node{node("prod/abc", "node", "10.0.0.1")}, nil)
+		p := graph([]cytoscape.Node{node("prod/abc", "node", "10.0.0.1")}, nil)
 		s := graph(
-			[]client.Node{{Data: client.NodeData{ID: "sw-host:x", IPAddress: []string{"10.0.0.1"}}}},
-			[]client.Edge{edge("e", "sw-host:x", "switch:1")},
+			[]cytoscape.Node{{Data: cytoscape.NodeData{ID: "sw-host:x", IPAddress: []string{"10.0.0.1"}}}},
+			[]cytoscape.Edge{edge("e", "sw-host:x", "switch:1")},
 		)
 		pBefore, sBefore := *p, *s
 		pElemBefore, sElemBefore := p.Elements, s.Elements
@@ -200,11 +200,11 @@ func TestReconcileSwitch(t *testing.T) {
 		// rewrite to N. Edge A→B (e.g., intra-fabric LAG link) MUST NOT become
 		// a kube→kube self-loop in the output.
 		sw := graph(
-			[]client.Node{
-				{Data: client.NodeData{ID: "sw-A", IPAddress: []string{"10.0.0.1"}}},
-				{Data: client.NodeData{ID: "sw-B", IPAddress: []string{"10.0.0.2"}}},
+			[]cytoscape.Node{
+				{Data: cytoscape.NodeData{ID: "sw-A", IPAddress: []string{"10.0.0.1"}}},
+				{Data: cytoscape.NodeData{ID: "sw-B", IPAddress: []string{"10.0.0.2"}}},
 			},
-			[]client.Edge{edge("lag", "sw-A", "sw-B")},
+			[]cytoscape.Edge{edge("lag", "sw-A", "sw-B")},
 		)
 		out := ReconcileSwitch(primary, sw)
 		for _, e := range out.Elements.Edges {
@@ -218,8 +218,8 @@ func TestReconcileSwitch(t *testing.T) {
 		// If the switch graph genuinely contains a self-loop (e.g., port mirror),
 		// reconcile should preserve it — only rewrite-induced collisions are dropped.
 		sw := graph(
-			[]client.Node{{Data: client.NodeData{ID: "switch:tor-1", Type: "switch"}}},
-			[]client.Edge{edge("port-mirror", "switch:tor-1", "switch:tor-1")},
+			[]cytoscape.Node{{Data: cytoscape.NodeData{ID: "switch:tor-1", Type: "switch"}}},
+			[]cytoscape.Edge{edge("port-mirror", "switch:tor-1", "switch:tor-1")},
 		)
 		out := ReconcileSwitch(primary, sw)
 		if len(out.Elements.Edges) != 1 {
@@ -229,10 +229,10 @@ func TestReconcileSwitch(t *testing.T) {
 
 	t.Run("rewrite target endpoint too", func(t *testing.T) {
 		sw := graph(
-			[]client.Node{
-				{Data: client.NodeData{ID: "sw-host:xyz", IPAddress: []string{"10.0.0.1"}}},
+			[]cytoscape.Node{
+				{Data: cytoscape.NodeData{ID: "sw-host:xyz", IPAddress: []string{"10.0.0.1"}}},
 			},
-			[]client.Edge{edge("inbound", "switch:tor-1", "sw-host:xyz")},
+			[]cytoscape.Edge{edge("inbound", "switch:tor-1", "sw-host:xyz")},
 		)
 		out := ReconcileSwitch(primary, sw)
 		if out.Elements.Edges[0].Data.Target != "prod/abc" {
