@@ -60,13 +60,9 @@ The service SHALL expose `GET /livez` and `GET /readyz` returning HTTP `200` wit
 ### Requirement: OpenAPI Documentation Routes
 The service SHALL serve its generated OpenAPI 3.1 spec and an offline Swagger UI at fixed routes. These routes SHALL be exempt from API-key authentication so the spec and UI load in any browser without credentials.
 
-#### Scenario: OpenAPI YAML is served
-- **WHEN** a client issues `GET /openapi.yaml`
-- **THEN** the response is HTTP `200` with the embedded YAML body
-
 #### Scenario: OpenAPI JSON is served
 - **WHEN** a client issues `GET /openapi.json`
-- **THEN** the response is HTTP `200` with the embedded JSON body
+- **THEN** the response is HTTP `200` with the generated OpenAPI 3.1 JSON document (compiled into the binary via the swag-generated docs package, not an embedded file)
 
 #### Scenario: Swagger UI is served offline
 - **WHEN** a client issues `GET /docs/`
@@ -94,7 +90,7 @@ The service SHALL load configuration from environment variables and SHALL fail f
 - **THEN** the process exits non-zero with stderr naming the missing key
 
 ### Requirement: Inbound API-Key Authentication
-The service SHALL support optional inbound API-key authentication, mirroring kube-state-graph. When at least one key is configured (via `API_KEYS` comma-separated, or `API_KEYS_FILE` one-per-line), every request to a protected route SHALL carry a valid `X-API-Key` header; otherwise the request SHALL be rejected with `401` and body `{"error":"unauthorized"}`. Key comparison SHALL be constant-time and iterate the full key set. When no keys are configured, authentication SHALL be disabled and every route served without a key. Health probes (`/livez`, `/readyz`), the OpenAPI spec routes (`/openapi.yaml`, `/openapi.json`), and the Swagger UI (`/docs/*`) SHALL always be exempt. This inbound credential is independent of the per-backend outbound `*_API_KEY` values.
+The service SHALL support optional inbound API-key authentication, mirroring kube-state-graph. When at least one key is configured (via `API_KEYS` comma-separated, or `API_KEYS_FILE` one-per-line), every request to a protected route SHALL carry a valid `X-API-Key` header; otherwise the request SHALL be rejected with `401` and body `{"error":"unauthorized"}`. Key comparison SHALL be constant-time and iterate the full key set. When no keys are configured, authentication SHALL be disabled and every route served without a key. Health probes (`/livez`, `/readyz`), the OpenAPI spec route (`/openapi.json`), and the Swagger UI (`/docs/*`) SHALL always be exempt. This inbound credential is independent of the per-backend outbound `*_API_KEY` values.
 
 #### Scenario: Disabled when no keys configured
 - **WHEN** the service is started with neither `API_KEYS` nor `API_KEYS_FILE` set

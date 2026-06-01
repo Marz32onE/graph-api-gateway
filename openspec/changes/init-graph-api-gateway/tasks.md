@@ -1,7 +1,7 @@
 ## 1. Project scaffolding
 
 - [x] 1.1 Initialise `go.mod` with module path `github.com/marz32one/graph-api-gateway` and Go 1.22+
-- [x] 1.2 Create directory layout: `cmd/graph-api-gateway/`, `internal/{api,auth,client,merge,config,observability,build}/`, `internal/api/static/openapi/`, `docs/`, `tools/openapi-postprocess/`, `deploy/docker/`
+- [x] 1.2 Create directory layout: `cmd/graph-api-gateway/`, `internal/{api,auth,client,merge,config,observability,build}/`, `docs/`, `deploy/docker/` (the swag-generated `docs` package is compiled into the binary; no `internal/api/static/openapi/` or `tools/openapi-postprocess/`)
 - [x] 1.3 Add core dependencies: `github.com/gin-gonic/gin`, `github.com/go-resty/resty/v2`, `github.com/swaggo/files/v2`, `github.com/google/uuid` (no `errgroup` — sequential pipeline per D5)
 - [x] 1.4 Add `github.com/swaggo/swag/v2` as a tool dependency (`go.mod` `tool` directive), matching the version used by kube-state-graph
 - [x] 1.5 Add baseline `Makefile` targets: `build`, `test`, `vet`, `lint`, `docs`, `check-docs`, `docker-build`, `docker-docs`
@@ -52,11 +52,11 @@
 
 ## 7. OpenAPI docs pipeline
 
-- [x] 7.1 Port `tools/openapi-postprocess/main.go` from kube-state-graph verbatim (rewrites parameter-level `example` into `schema.example` for the OpenAPI renderer)
-- [x] 7.2 Implement `internal/api/docs.go` (`//go:embed static/openapi/*`) serving `GET /openapi.yaml` and `GET /openapi.json` from the embedded spec, and a new `internal/api/swagger.go` serving an offline Swagger UI 5.18.2 at `GET /docs/*filepath` from `github.com/swaggo/files/v2` — a single handler that special-cases `swagger-initializer.js` to point the UI at `/openapi.json` and serves all other assets from the embedded FS
+- [x] 7.1 SUPERSEDED/REMOVED: `tools/openapi-postprocess/` was a Scalar-era workaround (rewriting parameter-level `example` into `schema.example` for the Scalar renderer) and has been deleted — Swagger UI does not need it (see section 12)
+- [x] 7.2 Implement `internal/api/docs.go` importing the swag-generated `docs` package and serving `GET /openapi.json` from `docs.SwaggerInfo.ReadDoc()` (rendered once at startup, stray Swagger-2.0 `schemes` field stripped) — no `//go:embed`, no `/openapi.yaml`; and a new `internal/api/swagger.go` serving an offline Swagger UI 5.18.2 at `GET /docs/*filepath` from `github.com/swaggo/files/v2` — a single handler that special-cases `swagger-initializer.js` to point the UI at `/openapi.json` and serves all other assets from the embedded FS
 - [x] 7.3 REMOVED: the Scalar API Reference vendoring script `scripts/refresh-docs-ui.sh` and the `internal/api/static/scalar/` directory it populated were deleted (whole `scripts/` dir gone) in favour of the embedded Swagger UI
-- [x] 7.4 Wire `make docs`: runs `go tool swag init -g cmd/graph-api-gateway/main.go --output docs --parseDependency --parseInternal --v3.1=true`, then `go run ./tools/openapi-postprocess docs/swagger.json docs/swagger.yaml`, then copies the YAML/JSON into `internal/api/static/openapi/`
-- [x] 7.5 Wire `make check-docs`: runs `make docs`, then `git diff --quiet -- docs/ internal/api/static/openapi/` (fails CI if generated spec drifts from committed)
+- [x] 7.4 Wire `make docs`: just runs `go tool swag init -g cmd/graph-api-gateway/main.go --output docs --parseDependency --parseInternal --v3.1=true` (no postprocess step, no copy into static)
+- [x] 7.5 Wire `make check-docs`: runs `make docs`, then `git diff --quiet -- docs/` (fails CI if generated spec drifts from committed)
 - [x] 7.6 Run `make docs` once and commit the generated `docs/openapi.{yaml,json}` plus the embedded copies
 
 ## 8. Entrypoint and packaging
@@ -92,10 +92,19 @@
 - [x] 11.2 Observability is now `log/slog` only: JSON by default / text via `LOG_FORMAT=text`, honouring `LOG_LEVEL`, plus a per-request access log carrying `method` / `path` / `status` / `duration_ms` / `request_id` (with `/livez` and `/readyz` quiet on 2xx)
 - [x] 11.3 Add `internal/auth/keyset.go`: a constant-time `KeySet` (compares via `crypto/subtle`) with `LoadCSV` / `LoadFile` (`#` comments supported) and hot reload
 - [x] 11.4 Add `internal/auth/validator.go`: a `Validator` interface exposing `Validate` and `Empty`
-- [x] 11.5 Add `internal/api/auth_middleware.go`: reads `X-API-Key`; no-op when the keyset is empty; `openPaths` = `/livez`, `/readyz`, `/openapi.yaml`, `/openapi.json`, `/docs/*filepath`; on failure returns `401 {"error":"unauthorized"}` (flat envelope) and a slog warn; no prometheus metric
+- [x] 11.5 Add `internal/api/auth_middleware.go`: reads `X-API-Key`; no-op when the keyset is empty; `openPaths` = `/livez`, `/readyz`, `/openapi.json`, `/docs/*filepath`; on failure returns `401 {"error":"unauthorized"}` (flat envelope) and a slog warn; no prometheus metric
 - [x] 11.6 Config additions: `API_KEYS`, `API_KEYS_FILE`, `API_KEYS_RELOAD_INTERVAL` (default `30s`, `0` disables, fail-fast on invalid/negative)
 - [x] 11.7 `main.go` adds `loadAPIKeys` (fail-fast) and `reloadAPIKeys(ctx, …)`; `api.New(…, keys)` now takes the keyset; `Server` holds `keys auth.Validator`
 - [x] 11.8 Middleware order is Recovery → requestID → logging → apiKey → routes
 - [x] 11.9 swag: top-level `@securityDefinitions.apikey ApiKeyAuth` / `@in header` / `@name X-API-Key`; `@Security ApiKeyAuth` + `@Failure 401` on `/v1/graph`
-- [x] 11.10 Docs UI: replace Scalar with an offline Swagger UI 5.18.2 — delete the Scalar HTML plus `handleDocs` / `handleDocsAsset` / `mimeFor`, the `internal/api/static/scalar/` directory, and `scripts/refresh-docs-ui.sh` (whole `scripts/` dir gone); add `internal/api/swagger.go` serving Swagger UI from `github.com/swaggo/files/v2` at `GET /docs/*filepath` (single handler; special-cases `swagger-initializer.js` to point at `/openapi.json`, serves other assets from the embedded FS); keep `/openapi.{yaml,json}` routes and `tools/openapi-postprocess`; change the `docs.go` embed to `//go:embed static/openapi/*`
+- [x] 11.10 Docs UI: replace Scalar with an offline Swagger UI 5.18.2 — delete the Scalar HTML plus `handleDocs` / `handleDocsAsset` / `mimeFor`, the `internal/api/static/scalar/` directory, and `scripts/refresh-docs-ui.sh` (whole `scripts/` dir gone); add `internal/api/swagger.go` serving Swagger UI from `github.com/swaggo/files/v2` at `GET /docs/*filepath` (single handler; special-cases `swagger-initializer.js` to point at `/openapi.json`, serves other assets from the embedded FS); serve `/openapi.json` from the swag-generated `docs` package instead of an embed (the `/openapi.yaml` route is removed, and `tools/openapi-postprocess/` plus `internal/api/static/` are deleted — see section 12)
 - [x] 11.11 `go.mod`: removed all otel dependencies, added `github.com/swaggo/files/v2 v2.0.2`, gin is now a direct dependency
+
+## 12. Docs-serving simplification (serve from the swag docs package)
+
+- [x] 12.1 Serve `GET /openapi.json` from `docs.SwaggerInfo.ReadDoc()` — the swag-generated `docs` package is compiled into the binary as a Go string and imported by `internal/api/docs.go`; rendered once at startup with swag v2's stray Swagger-2.0 `schemes` field stripped (invalid at an OpenAPI 3.1 root)
+- [x] 12.2 Delete `internal/api/static/` (the whole directory) and the `//go:embed static/openapi/*` directive from `docs.go`, plus the Makefile copy step
+- [x] 12.3 Delete `tools/openapi-postprocess/` (Scalar-era workaround Swagger UI doesn't need) and drop both it and the copy step from `make docs` — `make docs` is now just `go tool swag init …`
+- [x] 12.4 Remove the `/openapi.yaml` HTTP route (only `/openapi.json` is served; `docs/swagger.yaml` is still generated as a committed artifact, not served) and drop `/openapi.yaml` from the auth `openPaths`
+- [x] 12.5 `make check-docs` now diffs `docs/` only
+- [x] 12.6 The binary now imports the generated `docs` package, so `github.com/swaggo/swag/v2` is linked into the production binary (standard swaggo convention; intended)
