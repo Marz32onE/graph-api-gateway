@@ -9,19 +9,15 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"go.opentelemetry.io/otel"
-	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 )
 
 func TestKubeStateGraphClient_HappyPath(t *testing.T) {
-	var gotAPIKey, gotTraceparent, gotQuery string
+	var gotAPIKey, gotQuery string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v1/graph" {
 			t.Errorf("path: want /v1/graph, got %s", r.URL.Path)
 		}
 		gotAPIKey = r.Header.Get("X-API-Key")
-		gotTraceparent = r.Header.Get("Traceparent")
 		gotQuery = r.URL.RawQuery
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{
@@ -48,7 +44,6 @@ func TestKubeStateGraphClient_HappyPath(t *testing.T) {
 	if gotQuery != "start=a&end=b" {
 		t.Errorf("query: want start=a&end=b, got %q", gotQuery)
 	}
-	_ = gotTraceparent // tested in TraceContext test
 }
 
 func TestClient_NoAPIKeyWhenEmpty(t *testing.T) {
@@ -129,34 +124,6 @@ func TestClient_Timeout(t *testing.T) {
 	}
 	if elapsed > 500*time.Millisecond {
 		t.Errorf("timeout took too long: %s", elapsed)
-	}
-}
-
-func TestClient_PropagatesTraceparent(t *testing.T) {
-	tp := sdktrace.NewTracerProvider()
-	t.Cleanup(func() { _ = tp.Shutdown(context.Background()) })
-	otel.SetTracerProvider(tp)
-
-	var gotTraceparent string
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotTraceparent = r.Header.Get("Traceparent")
-		_, _ = w.Write([]byte(`{"apiVersion":"v1","elements":{"nodes":[],"edges":[]}}`))
-	}))
-	t.Cleanup(srv.Close)
-
-	c := NewKubeStateGraphClient(srv.URL, "", 5*time.Second)
-	ctx, span := tp.Tracer("test").Start(context.Background(), "parent")
-	defer span.End()
-
-	if _, err := c.FetchGraph(ctx, GraphQuery{}); err != nil {
-		t.Fatalf("fetch: %v", err)
-	}
-	if gotTraceparent == "" {
-		t.Fatal("want traceparent header on outbound request")
-	}
-	parentTrace := span.SpanContext().TraceID().String()
-	if !strings.Contains(gotTraceparent, parentTrace) {
-		t.Errorf("traceparent %q does not contain trace id %s", gotTraceparent, parentTrace)
 	}
 }
 

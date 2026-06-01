@@ -2,7 +2,6 @@ package api
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"io"
 	"log/slog"
@@ -12,20 +11,16 @@ import (
 	"testing"
 	"time"
 
-	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/propagation"
-	sdktrace "go.opentelemetry.io/otel/sdk/trace"
-
+	"github.com/marz32one/graph-api-gateway/internal/auth"
 	"github.com/marz32one/graph-api-gateway/internal/client"
 	"github.com/marz32one/graph-api-gateway/internal/config"
 )
 
 type stubCapture struct {
-	traceparent string
-	rawQuery    string
-	method      string
-	body        string
-	called      bool
+	rawQuery string
+	method   string
+	body     string
+	called   bool
 }
 
 func newStub(t *testing.T, body string, status int, capture *stubCapture) *httptest.Server {
@@ -33,7 +28,6 @@ func newStub(t *testing.T, body string, status int, capture *stubCapture) *httpt
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if capture != nil {
 			capture.called = true
-			capture.traceparent = r.Header.Get("Traceparent")
 			capture.rawQuery = r.URL.RawQuery
 			capture.method = r.Method
 			reqBody, _ := io.ReadAll(r.Body)
@@ -58,7 +52,7 @@ func newTestServer(t *testing.T, primaryURL, switchURL string, logBuf io.Writer)
 	logger := slog.New(slog.NewJSONHandler(logBuf, &slog.HandlerOptions{Level: slog.LevelDebug}))
 	primary := client.NewKubeStateGraphClient(primaryURL, "", cfg.KSG.Timeout)
 	switchClient := client.NewSwitchGraphClient(switchURL, "", cfg.Switch.Timeout)
-	return New(cfg, logger, primary, switchClient)
+	return New(cfg, logger, primary, switchClient, auth.NewKeySet())
 }
 
 // Primary response with a kube node that owns an IP, plus a pod (whose IP must NOT be forwarded).
@@ -264,38 +258,6 @@ func TestGraphHandler_InboundQueryForwardedToPrimaryOnly(t *testing.T) {
 		if strings.Contains(sCap.body, leaked) {
 			t.Errorf("switch body should contain only ip entries, leaked %q: %s", leaked, sCap.body)
 		}
-	}
-}
-
-func TestGraphHandler_TraceparentChainedThroughBothBackends(t *testing.T) {
-	tp := sdktrace.NewTracerProvider()
-	t.Cleanup(func() { _ = tp.Shutdown(context.Background()) })
-	otel.SetTracerProvider(tp)
-	otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(
-		propagation.TraceContext{},
-		propagation.Baggage{},
-	))
-
-	pCap, sCap := &stubCapture{}, &stubCapture{}
-	primary := newStub(t, primaryWithIPs, 200, pCap)
-	swSrv := newStub(t, switchResponse, 200, sCap)
-	s := newTestServer(t, primary.URL, swSrv.URL, io.Discard)
-
-	const inboundTrace = "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01"
-	req := httptest.NewRequest("GET", "/v1/graph", nil)
-	req.Header.Set("Traceparent", inboundTrace)
-	w := httptest.NewRecorder()
-	s.Handler().ServeHTTP(w, req)
-
-	if w.Code != 200 {
-		t.Fatalf("status: want 200, got %d", w.Code)
-	}
-	const wantTraceID = "0af7651916cd43dd8448eb211c80319c"
-	if !strings.Contains(pCap.traceparent, wantTraceID) {
-		t.Errorf("primary traceparent %q missing trace id %s", pCap.traceparent, wantTraceID)
-	}
-	if !strings.Contains(sCap.traceparent, wantTraceID) {
-		t.Errorf("switch traceparent %q missing trace id %s", sCap.traceparent, wantTraceID)
 	}
 }
 

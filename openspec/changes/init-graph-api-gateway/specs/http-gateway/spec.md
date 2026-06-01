@@ -58,7 +58,7 @@ The service SHALL expose `GET /livez` and `GET /readyz` returning HTTP `200` wit
 - **THEN** the response is HTTP `200` with body `ok`
 
 ### Requirement: OpenAPI Documentation Routes
-The service SHALL serve its generated OpenAPI 3.1 spec and a Scalar API Reference UI at fixed routes without authentication.
+The service SHALL serve its generated OpenAPI 3.1 spec and an offline Swagger UI at fixed routes. These routes SHALL be exempt from API-key authentication so the spec and UI load in any browser without credentials.
 
 #### Scenario: OpenAPI YAML is served
 - **WHEN** a client issues `GET /openapi.yaml`
@@ -68,9 +68,10 @@ The service SHALL serve its generated OpenAPI 3.1 spec and a Scalar API Referenc
 - **WHEN** a client issues `GET /openapi.json`
 - **THEN** the response is HTTP `200` with the embedded JSON body
 
-#### Scenario: Scalar UI is served
-- **WHEN** a client issues `GET /docs`
-- **THEN** the response is HTTP `200` with an HTML body that loads Scalar and points at `/openapi.json`
+#### Scenario: Swagger UI is served offline
+- **WHEN** a client issues `GET /docs/`
+- **THEN** the response is HTTP `200` with an HTML body that loads the embedded Swagger UI (no external CDN) pointing at `/openapi.json`
+- **AND** every UI asset is served from the binary under `/docs/*`
 
 ### Requirement: Request ID Middleware
 Every inbound request SHALL be tagged with a request ID following the kube-state-graph pattern: honour an inbound `X-Request-ID` header when present, otherwise generate a UUIDv4; the ID SHALL be placed in the gin context under key `request_id`, echoed back as the `X-Request-ID` response header, and included as a `request_id` field in every access log record for that request.
@@ -91,3 +92,30 @@ The service SHALL load configuration from environment variables and SHALL fail f
 #### Scenario: Missing backend URL aborts startup
 - **WHEN** the binary is launched with `KUBE_STATE_GRAPH_URL` or `SWITCH_GRAPH_URL` unset
 - **THEN** the process exits non-zero with stderr naming the missing key
+
+### Requirement: Inbound API-Key Authentication
+The service SHALL support optional inbound API-key authentication, mirroring kube-state-graph. When at least one key is configured (via `API_KEYS` comma-separated, or `API_KEYS_FILE` one-per-line), every request to a protected route SHALL carry a valid `X-API-Key` header; otherwise the request SHALL be rejected with `401` and body `{"error":"unauthorized"}`. Key comparison SHALL be constant-time and iterate the full key set. When no keys are configured, authentication SHALL be disabled and every route served without a key. Health probes (`/livez`, `/readyz`), the OpenAPI spec routes (`/openapi.yaml`, `/openapi.json`), and the Swagger UI (`/docs/*`) SHALL always be exempt. This inbound credential is independent of the per-backend outbound `*_API_KEY` values.
+
+#### Scenario: Disabled when no keys configured
+- **WHEN** the service is started with neither `API_KEYS` nor `API_KEYS_FILE` set
+- **THEN** `GET /v1/graph` is served without requiring an `X-API-Key` header
+
+#### Scenario: Missing key is rejected
+- **WHEN** keys are configured **AND** a client issues `GET /v1/graph` with no `X-API-Key` header
+- **THEN** the response is HTTP `401` with body `{"error":"unauthorized"}`
+
+#### Scenario: Invalid key is rejected
+- **WHEN** keys are configured **AND** a client issues `GET /v1/graph` with an `X-API-Key` that matches no configured key
+- **THEN** the response is HTTP `401` with body `{"error":"unauthorized"}`
+
+#### Scenario: Valid key is accepted
+- **WHEN** keys are configured **AND** a client issues `GET /v1/graph` with a valid `X-API-Key` header
+- **THEN** the request is authenticated and processed normally
+
+#### Scenario: Open routes bypass authentication
+- **WHEN** keys are configured **AND** a client issues `GET /livez`, `GET /readyz`, `GET /openapi.json`, or `GET /docs/` without an `X-API-Key` header
+- **THEN** the request is served (HTTP `200`) without requiring a key
+
+#### Scenario: File-backed keys hot reload
+- **WHEN** keys are loaded from `API_KEYS_FILE` **AND** `API_KEYS_RELOAD_INTERVAL` is greater than `0`
+- **THEN** the service re-reads the file on that interval and picks up rotated keys without a restart

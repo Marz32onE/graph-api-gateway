@@ -9,7 +9,7 @@ LDFLAGS := -s -w \
 	-X github.com/marz32one/graph-api-gateway/internal/build.Version=$(VERSION) \
 	-X github.com/marz32one/graph-api-gateway/internal/build.Commit=$(COMMIT)
 
-.PHONY: build test vet lint vuln ci cover docs check-docs refresh-docs-ui \
+.PHONY: build test vet lint vuln ci cover docs check-docs \
         docker-build docker-docs docker-docs-stop docs-preview clean tools \
         init init-go init-tools init-hooks doctor tools-versions
 
@@ -152,9 +152,6 @@ check-docs: docs
 		exit 1; \
 	fi
 
-refresh-docs-ui:
-	./scripts/refresh-docs-ui.sh
-
 IMAGE_REPO ?= graph-api-gateway
 IMAGE_TAG  ?= dev
 
@@ -169,8 +166,8 @@ DOCS_PORT ?= 8080
 DOCS_NAME ?= graph-api-gateway-docs
 
 docker-docs: docker-build
-	@echo "Starting $(DOCS_NAME) on http://localhost:$(DOCS_PORT)/docs"
-	@echo "  Scalar UI : http://localhost:$(DOCS_PORT)/docs"
+	@echo "Starting $(DOCS_NAME) on http://localhost:$(DOCS_PORT)/docs/"
+	@echo "  Swagger UI: http://localhost:$(DOCS_PORT)/docs/"
 	@echo "  OpenAPI   : http://localhost:$(DOCS_PORT)/openapi.json"
 	@echo "              http://localhost:$(DOCS_PORT)/openapi.yaml"
 	docker run --rm $(if $(DETACH),-d,) --name $(DOCS_NAME) \
@@ -190,7 +187,7 @@ docker-docs-stop:
 PREVIEW_PORT ?= 8080
 docs-preview: build
 	@echo "Starting graph-api-gateway with placeholder backends on http://localhost:$(PREVIEW_PORT)"
-	@echo "  Scalar UI : http://localhost:$(PREVIEW_PORT)/docs"
+	@echo "  Swagger UI: http://localhost:$(PREVIEW_PORT)/docs/"
 	@echo "  OpenAPI   : http://localhost:$(PREVIEW_PORT)/openapi.json"
 	@echo "              http://localhost:$(PREVIEW_PORT)/openapi.yaml"
 	@echo "  (Note: /v1/graph will 502 — backends are placeholders.)"

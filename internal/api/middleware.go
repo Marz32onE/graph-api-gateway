@@ -6,8 +6,6 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
-	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/trace"
 )
 
 const requestIDHeader = "X-Request-ID"
@@ -34,11 +32,6 @@ func requestIDMiddleware() gin.HandlerFunc {
 		}
 		c.Set(requestIDKey, id)
 		c.Header(requestIDHeader, id)
-		// Decorate the otelgin-created span so the trace backend carries the
-		// same correlation key as the response header and access log.
-		if span := trace.SpanFromContext(c.Request.Context()); span.SpanContext().IsValid() {
-			span.SetAttributes(attribute.String("http.request_id", id))
-		}
 		c.Next()
 	}
 }

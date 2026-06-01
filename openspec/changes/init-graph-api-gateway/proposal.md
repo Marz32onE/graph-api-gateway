@@ -10,11 +10,12 @@ To render a "pod → node → switch" view end-to-end, a client today would have
 - **NEW** Single public endpoint `GET /v1/graph` that runs a **sequential pipeline**: (1) call kube-state-graph with the inbound query string, (2) extract `data.ipaddress` from every `node`-type entry in the response, (3) if any IPs were collected, POST those IPs to the switch backend batched as a single `[{"ip":"<a>"},{"ip":"<b>"}]` JSON body, (4) reconcile switch IDs onto kube node IDs by IP match, (5) merge the two Cytoscape payloads (union by node `id`, edge de-duplication), (6) return the merged `{apiVersion, elements:{nodes,edges}}` envelope.
 - **NEW** Two backend wrapper clients on **resty** — `KubeStateGraphClient` (primary, queried via `FetchGraph` over `GET`) and `SwitchGraphClient` (node-to-switch lookup, queried via `FetchGraphByIPs` which `POST`s a batched IP body) — sharing one resty transport; `KubeStateGraphClient` satisfies the `GraphBackend` interface.
 - **NEW** Pure helpers in `internal/pipeline/`: `ExtractIPs(*CytoscapeGraph) []string` (walks `node`-type entries, collects `data.ipaddress[]`, dedup, preserves order) and `ReconcileSwitch(primary, switch) *CytoscapeGraph` (builds IP→kube-node-ID index from primary, finds switch shadow nodes by matching `data.ipaddress`, rewrites their references in switch edges, drops the now-redundant shadow nodes).
-- **NEW** OpenTelemetry (OTLP/HTTP) tracing wired via **otelgin** (inbound) and **otelhttp** on resty's underlying transport (outbound), honouring inbound W3C `traceparent` and forwarding it to both backends. Zero overhead when `OTEL_EXPORTER_OTLP_ENDPOINT` is unset.
-- **NEW** Structured logging with **`log/slog`** (stdlib), JSON by default / text via `LOG_FORMAT=text`, `trace_id` / `span_id` auto-attached from request context.
-- **NEW** Minimal env-driven config: listen address, per-backend base URL + API key + timeout, OTLP endpoint, log level, log format.
+- **NO tracing** — the service ships no OpenTelemetry/OTLP instrumentation; `OTEL_*` env vars have no effect. Observability is structured logging only.
+- **NEW** Structured logging with **`log/slog`** (stdlib), JSON by default / text via `LOG_FORMAT=text`; one access-log record per request with `method`/`path`/`status`/`duration_ms`/`request_id`.
+- **NEW** Optional inbound API-key auth mirroring kube-state-graph: `X-API-Key` validated against a constant-time `KeySet`, configured via `API_KEYS` / `API_KEYS_FILE` (hot-reloaded) / `API_KEYS_RELOAD_INTERVAL`; health, OpenAPI spec, and Swagger UI routes are exempt. Disabled when no keys are configured.
+- **NEW** Minimal env-driven config: listen address, per-backend base URL + API key + timeout, inbound API keys, log level, log format.
 - **NEW** Health endpoints `/livez`, `/readyz` (both return `200 ok`).
-- **NEW** OpenAPI 3.1 docs pipeline that mirrors kube-state-graph: `swag` annotations on handlers → `go tool swag init` → `tools/openapi-postprocess` → embedded at `internal/api/static/openapi/` → served at `/openapi.{yaml,json}` with **Scalar UI** at `/docs`. CI gate via `make check-docs`.
+- **NEW** OpenAPI 3.1 docs pipeline: `swag` annotations on handlers → `go tool swag init` → `tools/openapi-postprocess` → embedded at `internal/api/static/openapi/` → served at `/openapi.{yaml,json}`, with an **offline Swagger UI** (swaggo/files, all assets in-binary) at `/docs/` pointed at `/openapi.json`. CI gate via `make check-docs`.
 - The inbound query string is forwarded **only to the primary** (kube-state-graph). The switch backend receives only the IP list derived from the primary's response.
 - Failure policy: any stage failure (primary call, switch call) returns HTTP `502`. No partial-success warnings, no fallback.
 - Short-circuit: if the primary returns zero entries with `ipaddress`, the switch call is skipped and the primary response is returned as-is (still merged through the same code path so the envelope is consistent).
@@ -22,10 +23,12 @@ To render a "pod → node → switch" view end-to-end, a client today would have
 ## Capabilities
 
 ### New Capabilities
-- `http-gateway`: Gin server, `GET /v1/graph` (sequential primary → IP-extract → switch → merge), `/livez` `/readyz`, OpenAPI/Scalar doc routes, env-driven config.
+- `http-gateway`: Gin server, `GET /v1/graph` (sequential primary → IP-extract → switch → merge), `/livez` `/readyz`, OpenAPI spec + offline Swagger UI doc routes, optional inbound `X-API-Key` auth, env-driven config.
 - `backend-clients`: Two resty-based wrappers (`KubeStateGraphClient` via `FetchGraph`/`GET`, `SwitchGraphClient` via `FetchGraphByIPs`/`POST`) sharing one transport — base URL, optional `X-API-Key`, per-call timeout, typed Cytoscape decoding (now including `data.ipaddress` on `NodeData`).
 - `graph-merging`: Pure helpers — `Merge` (union nodes by `data.id` first-writer-wins, dedup edges by `(type, source, target)`), `ExtractIPs` (collect `data.ipaddress[]` from `node`-type entries, dedup, preserve insertion order), and `ReconcileSwitch` (IP-keyed re-anchoring of switch graph onto kube node IDs).
-- `observability`: otelgin inbound spans, otelhttp outbound spans, `log/slog` with trace correlation, no-op when OTLP disabled.
+- `observability`: `log/slog` structured logging (JSON/text) with a per-request access log; no tracing backend.
+
+Inbound `X-API-Key` authentication is folded into the `http-gateway` capability (constant-time `KeySet`, CSV or hot-reloaded file, mirroring kube-state-graph; health/spec/UI routes exempt).
 
 ### Modified Capabilities
 _None — greenfield repo._
@@ -33,8 +36,8 @@ _None — greenfield repo._
 ## Impact
 
 - **New Go module** `github.com/<org>/graph-api-gateway` (module path TBD in design).
-- **Dependencies**: `github.com/gin-gonic/gin`, `github.com/go-resty/resty/v2`, `go.opentelemetry.io/contrib/instrumentation/github.com/gin-gonic/gin/otelgin`, `go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp`, `go.opentelemetry.io/otel`, `go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp`, `go.opentelemetry.io/otel/sdk`. (`log/slog` is stdlib.)
+- **Dependencies**: `github.com/gin-gonic/gin`, `github.com/go-resty/resty/v2`, `github.com/google/uuid`, `github.com/swaggo/files/v2` (embedded Swagger UI 5.x), `github.com/swaggo/swag/v2` (docs-generation tool). (`log/slog` and `crypto/subtle` are stdlib.) **No OpenTelemetry dependencies.**
 - **No upstream changes** to `kube-state-graph` — gateway consumes its public `/v1/graph` contract as-is.
 - **Switch backend**: client struct scaffolded against the Cytoscape envelope; queried with a `POST /v1/graph` `[{"ip":…}]` JSON body batching every IP into a single call; concrete base URL injected via `SWITCH_GRAPH_URL`.
 - **kube-state-graph dependency**: assumes the upstream contract has been extended so `node` and `pod` entries carry `data.ipaddress: []string` (tracked separately on the kube-state-graph side).
-- **Operational**: one new container/binary to deploy; expects two backend URLs reachable on the network; emits OTLP traces to whatever collector `OTEL_EXPORTER_OTLP_ENDPOINT` points at.
+- **Operational**: one new container/binary to deploy; expects two backend URLs reachable on the network; emits structured slog records to stdout (no external tracing collector).

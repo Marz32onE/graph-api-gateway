@@ -122,6 +122,14 @@ const docTemplate = `{
                 },
                 "type": "object"
             }
+        },
+        "securitySchemes": {
+            "ApiKeyAuth": {
+                "description": "API key presented in the ` + "`" + `X-API-Key` + "`" + ` header. Required on ` + "`" + `/v1/*` + "`" + ` when the gateway is started with keys configured. Health and docs routes are exempt.",
+                "in": "header",
+                "name": "X-API-Key",
+                "type": "apiKey"
+            }
         }
     },
     "info": {
@@ -134,67 +142,6 @@ const docTemplate = `{
         "url": ""
     },
     "paths": {
-        "/docs": {
-            "get": {
-                "responses": {
-                    "200": {
-                        "content": {
-                            "text/html": {
-                                "schema": {
-                                    "type": "string"
-                                }
-                            }
-                        },
-                        "description": "HTML"
-                    }
-                },
-                "summary": "API reference UI (Scalar)",
-                "tags": [
-                    "docs"
-                ]
-            }
-        },
-        "/docs/assets/{path}": {
-            "get": {
-                "parameters": [
-                    {
-                        "description": "Asset path",
-                        "in": "path",
-                        "name": "path",
-                        "required": true,
-                        "schema": {
-                            "type": "string"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "type": "file"
-                                }
-                            }
-                        },
-                        "description": "OK"
-                    },
-                    "404": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "type": "string"
-                                }
-                            }
-                        },
-                        "description": "asset not found"
-                    }
-                },
-                "summary": "API reference asset (vendored)",
-                "tags": [
-                    "docs"
-                ]
-            }
-        },
         "/livez": {
             "get": {
                 "responses": {
@@ -373,6 +320,16 @@ const docTemplate = `{
                         },
                         "description": "OK"
                     },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/internal_api.errorResponse"
+                                }
+                            }
+                        },
+                        "description": "missing or invalid X-API-Key (when auth enabled)"
+                    },
                     "502": {
                         "content": {
                             "application/json": {
@@ -394,6 +351,11 @@ const docTemplate = `{
                         "description": "Gateway Timeout"
                     }
                 },
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
                 "summary": "Merged kube + switch graph (Cytoscape.js)",
                 "tags": [
                     "graph"
@@ -413,7 +375,7 @@ const docTemplate = `{
 var SwaggerInfo = &swag.Spec{
 	Version:          "v1",
 	Title:            "graph-api-gateway",
-	Description:      "HTTP gateway that runs a sequential pipeline: (1) fetch the kube-state-graph response with the inbound query, (2) extract `data.ipaddress` from every `node`-type entry, (3) if any IPs were collected, POST those IPs to the switch backend batched as a single `[{\"ip\":…}]` JSON body, (4) re-anchor switch shadow nodes onto kube node IDs via IP match, (5) merge into a single Cytoscape.js envelope. Propagates W3C trace context end-to-end and emits structured logs via slog. Any backend failure returns `502`.",
+	Description:      "HTTP gateway that runs a sequential pipeline: (1) fetch the kube-state-graph response with the inbound query, (2) extract `data.ipaddress` from every `node`-type entry, (3) if any IPs were collected, POST those IPs to the switch backend batched as a single `[{\"ip\":…}]` JSON body, (4) re-anchor switch shadow nodes onto kube node IDs via IP match, (5) merge into a single Cytoscape.js envelope. Emits structured logs via slog. Any backend failure returns `502`.\n\n**Authentication.** When the gateway is started with API keys configured (`API_KEYS` or `API_KEYS_FILE`), every request to `/v1/*` MUST carry an `X-API-Key: <key>` header. Missing or invalid keys yield `401 Unauthorized`. Health probes (`/livez`, `/readyz`), the OpenAPI spec (`/openapi.*`), and the Swagger UI (`/docs/*`) are exempt and require no key.",
 	InfoInstanceName: "swagger",
 	SwaggerTemplate:  docTemplate,
 	LeftDelim:        "{{",

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"strings"
 	"time"
 
@@ -26,10 +27,10 @@ const probePath = "/livez"
 
 // graphClient is the shared resty-backed transport core for both upstream
 // backends. kube-state-graph and the switch backend speak the same /v1/graph
-// Cytoscape contract and share identical transport behaviour (otelhttp
-// instrumentation, optional X-API-Key, per-call timeout, /livez probe); they
-// differ only in request shape, so each is exposed as its own thin type
-// (KubeStateGraphClient, SwitchGraphClient) embedding this core.
+// Cytoscape contract and share identical transport behaviour (optional
+// X-API-Key, per-call timeout, /livez probe); they differ only in request
+// shape, so each is exposed as its own thin type (KubeStateGraphClient,
+// SwitchGraphClient) embedding this core.
 type graphClient struct {
 	resty   *resty.Client
 	baseURL string
@@ -69,10 +70,10 @@ func (c *KubeStateGraphClient) FetchGraph(ctx context.Context, q GraphQuery) (*C
 }
 
 func newRestyClient(apiKey string, timeout time.Duration) *resty.Client {
-	// Timeout is set on the underlying http.Client (see newHTTPClient); resty
-	// inherits it. The handler additionally wraps each call in
-	// context.WithTimeout for finer per-stage budgets.
-	r := resty.NewWithClient(newHTTPClient(timeout))
+	// Timeout is set on the underlying http.Client; resty inherits it. The
+	// handler additionally wraps each call in context.WithTimeout for finer
+	// per-stage budgets.
+	r := resty.NewWithClient(&http.Client{Timeout: timeout})
 	if apiKey != "" {
 		r.SetHeader("X-API-Key", apiKey)
 	}

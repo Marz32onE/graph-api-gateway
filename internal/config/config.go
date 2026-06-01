@@ -17,6 +17,14 @@ type Config struct {
 	LogFormat  string
 	KSG        Backend
 	Switch     Backend
+
+	// Inbound API-key auth. These are independent of the per-backend outbound
+	// X-API-Key credentials on KSG/Switch above: they gate the gateway's OWN
+	// endpoints. When both APIKeys and APIKeysFile are empty, auth is disabled
+	// and every route is served without a key.
+	APIKeys               string        // comma-separated accepted keys (API_KEYS)
+	APIKeysFile           string        // path to a keys file, one per line (API_KEYS_FILE)
+	APIKeysReloadInterval time.Duration // re-read APIKeysFile every interval; 0 disables hot reload
 }
 
 // Backend is a single upstream graph backend.
@@ -27,10 +35,11 @@ type Backend struct {
 }
 
 const (
-	defaultListenAddr     = ":8080"
-	defaultLogLevel       = "info"
-	defaultLogFormat      = "json"
-	defaultBackendTimeout = 10 * time.Second
+	defaultListenAddr            = ":8080"
+	defaultLogLevel              = "info"
+	defaultLogFormat             = "json"
+	defaultBackendTimeout        = 10 * time.Second
+	defaultAPIKeysReloadInterval = 30 * time.Second
 )
 
 var validLogLevels = map[string]struct{}{
@@ -61,10 +70,37 @@ func Load() (*Config, error) {
 	}
 	cfg.Switch = switchBackend
 
+	cfg.APIKeys = os.Getenv("API_KEYS")
+	cfg.APIKeysFile = os.Getenv("API_KEYS_FILE")
+	reload, err := loadReloadInterval()
+	if err != nil {
+		return nil, err
+	}
+	cfg.APIKeysReloadInterval = reload
+
 	if err := cfg.validate(); err != nil {
 		return nil, err
 	}
 	return cfg, nil
+}
+
+// loadReloadInterval parses API_KEYS_RELOAD_INTERVAL, defaulting to
+// defaultAPIKeysReloadInterval when unset. A value of 0 disables hot reload;
+// negative or unparseable values are rejected (fail-fast, matching the
+// per-backend timeout handling).
+func loadReloadInterval() (time.Duration, error) {
+	v := os.Getenv("API_KEYS_RELOAD_INTERVAL")
+	if v == "" {
+		return defaultAPIKeysReloadInterval, nil
+	}
+	d, err := time.ParseDuration(v)
+	if err != nil {
+		return 0, fmt.Errorf("config: API_KEYS_RELOAD_INTERVAL is not a valid duration: %q", v)
+	}
+	if d < 0 {
+		return 0, fmt.Errorf("config: API_KEYS_RELOAD_INTERVAL must be >= 0, got %s", d)
+	}
+	return d, nil
 }
 
 func loadBackend(prefix string) (Backend, error) {

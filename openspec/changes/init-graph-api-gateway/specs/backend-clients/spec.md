@@ -1,19 +1,18 @@
 ## ADDED Requirements
 
 ### Requirement: Shared Transport, Per-Backend Request Shape
-The codebase SHALL define a `GraphBackend` interface exposing `FetchGraph(ctx, GraphQuery) (*CytoscapeGraph, error)`, satisfied by every backend wrapper. The two upstreams differ in request shape: kube-state-graph is queried via `FetchGraph` (the inbound query forwarded verbatim as `GraphQuery.RawQuery`), while the switch backend is queried via `FetchGraphByIPs(ctx, []string)`, which POSTs every collected IP in one `[{"ip":…}]` JSON body. Backend identity (`"kube-state-graph"` vs `"switch"`) is encoded by concrete type, not by an interface method, and surfaces through the OTel transport's span attributes and per-stage log fields.
+The codebase SHALL define a `GraphBackend` interface exposing `FetchGraph(ctx, GraphQuery) (*CytoscapeGraph, error)`, satisfied by every backend wrapper. The two upstreams differ in request shape: kube-state-graph is queried via `FetchGraph` (the inbound query forwarded verbatim as `GraphQuery.RawQuery`), while the switch backend is queried via `FetchGraphByIPs(ctx, []string)`, which POSTs every collected IP in one `[{"ip":…}]` JSON body. Backend identity (`"kube-state-graph"` vs `"switch"`) is encoded by concrete type, not by an interface method, and surfaces through per-stage log fields.
 
 #### Scenario: Both built-in clients satisfy the interface
 - **WHEN** the codebase is compiled
 - **THEN** `KubeStateGraphClient` and `SwitchGraphClient` both satisfy `GraphBackend`
 
-### Requirement: Resty HTTP Client with OTel Transport
-Each backend wrapper SHALL use a `*resty.Client` backed by an `otelhttp`-instrumented `http.Transport` so outbound calls automatically inject W3C `traceparent`.
+### Requirement: Resty HTTP Client
+Each backend wrapper SHALL use a `*resty.Client` backed by a plain `&http.Client{Timeout: …}` with no tracing instrumentation; outbound calls SHALL NOT carry a `traceparent` header.
 
-#### Scenario: Outbound call propagates trace context
-- **WHEN** an inbound request carries `traceparent: 00-<trace>-<span>-01`
-- **AND** a backend client issues its upstream `GET /v1/graph` within that request's context
-- **THEN** the outbound request carries a `traceparent` whose trace ID matches the inbound trace ID
+#### Scenario: No tracing header on outbound calls
+- **WHEN** a backend client issues its upstream `GET /v1/graph`
+- **THEN** the outbound request carries no `traceparent` header
 
 ### Requirement: Configurable Base URL, API Key, and Timeout
 Each backend wrapper SHALL be constructed with its own base URL, optional API key (forwarded as `X-API-Key`), and per-call timeout.

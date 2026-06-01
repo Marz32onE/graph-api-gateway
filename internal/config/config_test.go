@@ -178,6 +178,77 @@ func TestLoad(t *testing.T) {
 	}
 }
 
+func TestLoad_APIKeys(t *testing.T) {
+	base := map[string]string{
+		"KUBE_STATE_GRAPH_URL": "http://a:8080",
+		"SWITCH_GRAPH_URL":     "http://b:8080",
+	}
+	setBase := func(t *testing.T) {
+		clearEnv(t)
+		for k, v := range base {
+			t.Setenv(k, v)
+		}
+	}
+
+	t.Run("disabled by default with 30s reload", func(t *testing.T) {
+		setBase(t)
+		cfg, err := Load()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if cfg.APIKeys != "" || cfg.APIKeysFile != "" {
+			t.Errorf("auth should be disabled by default, got keys=%q file=%q", cfg.APIKeys, cfg.APIKeysFile)
+		}
+		if cfg.APIKeysReloadInterval != 30*time.Second {
+			t.Errorf("default reload interval: want 30s, got %s", cfg.APIKeysReloadInterval)
+		}
+	})
+
+	t.Run("csv keys", func(t *testing.T) {
+		setBase(t)
+		t.Setenv("API_KEYS", "k1,k2")
+		cfg, err := Load()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if cfg.APIKeys != "k1,k2" {
+			t.Errorf("APIKeys: want %q, got %q", "k1,k2", cfg.APIKeys)
+		}
+	})
+
+	t.Run("file with reload disabled via 0", func(t *testing.T) {
+		setBase(t)
+		t.Setenv("API_KEYS_FILE", "/etc/keys/api-keys.txt")
+		t.Setenv("API_KEYS_RELOAD_INTERVAL", "0")
+		cfg, err := Load()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if cfg.APIKeysFile != "/etc/keys/api-keys.txt" {
+			t.Errorf("APIKeysFile: want /etc/keys/api-keys.txt, got %q", cfg.APIKeysFile)
+		}
+		if cfg.APIKeysReloadInterval != 0 {
+			t.Errorf("reload interval: want 0 (disabled), got %s", cfg.APIKeysReloadInterval)
+		}
+	})
+
+	t.Run("invalid reload interval is rejected", func(t *testing.T) {
+		setBase(t)
+		t.Setenv("API_KEYS_RELOAD_INTERVAL", "nope")
+		if _, err := Load(); err == nil || !strings.Contains(err.Error(), "API_KEYS_RELOAD_INTERVAL is not a valid duration") {
+			t.Fatalf("want invalid-duration error, got %v", err)
+		}
+	})
+
+	t.Run("negative reload interval is rejected", func(t *testing.T) {
+		setBase(t)
+		t.Setenv("API_KEYS_RELOAD_INTERVAL", "-5s")
+		if _, err := Load(); err == nil || !strings.Contains(err.Error(), "must be >= 0") {
+			t.Fatalf("want negative-interval error, got %v", err)
+		}
+	})
+}
+
 func assertBackend(t *testing.T, name string, got Backend, want struct {
 	baseURL string
 	apiKey  string
@@ -201,6 +272,7 @@ func clearEnv(t *testing.T) {
 		"LISTEN_ADDR", "LOG_LEVEL", "LOG_FORMAT",
 		"KUBE_STATE_GRAPH_URL", "KUBE_STATE_GRAPH_API_KEY", "KUBE_STATE_GRAPH_TIMEOUT",
 		"SWITCH_GRAPH_URL", "SWITCH_GRAPH_API_KEY", "SWITCH_GRAPH_TIMEOUT",
+		"API_KEYS", "API_KEYS_FILE", "API_KEYS_RELOAD_INTERVAL",
 	}
 	for _, k := range keys {
 		t.Setenv(k, "")

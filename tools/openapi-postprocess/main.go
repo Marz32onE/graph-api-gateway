@@ -1,10 +1,10 @@
 // Command openapi-postprocess rewrites swag-generated OpenAPI 3.x specs so
 // parameter-level `example` values are also embedded in `schema.example`.
 //
-// Scalar API Reference (and several other renderers) display only
-// `schema.example` for query/path parameters. swag emits `example` at the
-// parameter level, which leaves the inline parameter docs blank. This tool
-// moves each parameter's `example` into its `schema.example`.
+// Several OpenAPI renderers read only `schema.example` for query/path
+// parameters. swag emits `example` at the parameter level, which leaves the
+// inline parameter docs blank in those renderers. This tool moves each
+// parameter's `example` into its `schema.example`.
 //
 // Ported verbatim from kube-state-graph/tools/openapi-postprocess so the two
 // services share the same docs pipeline.

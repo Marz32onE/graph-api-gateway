@@ -30,8 +30,10 @@ import (
 //	@Param			depth		query		int		false	"Traversal depth — forwarded to kube-state-graph"
 //	@Param			direction	query		string	false	"Traversal direction (`in`|`out`|`both`) — forwarded to kube-state-graph"
 //	@Success		200			{object}	client.CytoscapeGraph
+//	@Failure		401			{object}	errorResponse	"missing or invalid X-API-Key (when auth enabled)"
 //	@Failure		502			{object}	errorResponse
 //	@Failure		504			{object}	errorResponse
+//	@Security		ApiKeyAuth
 //	@Router			/v1/graph [get]
 func (s *Server) handleGraph(c *gin.Context) {
 	ctx := c.Request.Context()

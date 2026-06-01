@@ -231,9 +231,9 @@
         <li>合併兩張圖，回傳統一的 Cytoscape.js JSON 信封。</li>
       </ol>
       <div class="callout ok">
-        <strong>設計原則：</strong>無狀態、無快取、無部分成功——任一階段失敗即回傳 502/504，不會回傳「半套」圖。W3C Trace Context 端到端傳遞；結構化日誌（slog）在 span 內自動帶上 <code>trace_id</code> / <code>span_id</code>。
+        <strong>設計原則：</strong>無狀態、無快取、無部分成功——任一階段失敗即回傳 502/504，不會回傳「半套」圖。可觀測性僅採結構化日誌（slog）：預設 JSON，可透過 <code>LOG_FORMAT=text</code> 切換為 text；每個請求一筆 access log；無追蹤後端。
       </div>
-      <p>與姊妹專案 <code>kube-state-graph</code> 採相同目錄慣例與 OpenAPI（swag + Scalar）工具鏈，方便在兩個 repo 之間切換貢獻。</p>
+      <p>與姊妹專案 <code>kube-state-graph</code> 採相同目錄慣例與 OpenAPI（swag + Swagger UI，離線內嵌）工具鏈，方便在兩個 repo 之間切換貢獻。</p>
     </section>
 
     <section id="architecture">
@@ -244,20 +244,20 @@
 │ (UI / curl) │ ◄───────────────────────── │   (本 repo)       │
 └─────────────┘     合併後 Cytoscape JSON    └────────┬─────────┘
                                                       │
-                    ┌─────────────────────────────────┼─────────────────────────────────┐
-                    │                                 │                                 │
-                    ▼                                 ▼                                 ▼
-           GET /v1/graph?{rawQuery}        POST /v1/graph [{"ip":...}]          OTLP (可選)
-           ┌──────────────────┐            ┌──────────────────┐            ┌─────────────────┐
-           │ kube-state-graph │            │  switch backend  │            │ OTel Collector  │
-           │   (主後端)        │            │  (交換機圖)       │            └─────────────────┘
-           └──────────────────┘            └──────────────────┘</div>
+                    ┌─────────────────────────────────┴─────────────────────────────────┐
+                    │                                                                   │
+                    ▼                                                                   ▼
+           GET /v1/graph?{rawQuery}                                    POST /v1/graph [{"ip":...}]
+           ┌──────────────────┐                                        ┌──────────────────┐
+           │ kube-state-graph │                                        │  switch backend  │
+           │   (主後端)        │                                        │  (交換機圖)       │
+           └──────────────────┘                                        └──────────────────┘</div>
 
       <h3>請求處理順序（<code>GET /v1/graph</code>）</h3>
       <div class="flow-box">客戶端請求
     │
     ▼
-[Middleware] Recovery → otelgin → Request-ID → Access log
+[Middleware] Recovery → Request-ID → Access log → API-key
     │
     ▼
 ① withTimeout(KSG_TIMEOUT) → kube-state-graph GET /v1/graph?{轉發查詢}
@@ -292,8 +292,8 @@
           <tr><td>IP 批次查 switch</td><td>所有 node IP 打成一個 JSON 陣列 POST，避免 URL 長度限制。</td></tr>
           <tr><td>ID 對齊</td><td>switch 端點影子（如 <code>sw-host:xyz</code>）透過 <code>data.ipaddress</code> 對到 kube node ID（如 <code>prod/abc</code>），影子節點刪除、邊端點改寫。</td></tr>
           <tr><td>健康檢查</td><td><code>/livez</code> 存活；<code>/readyz</code> 探測兩個後端 <code>/livez</code> 是否可達。</td></tr>
-          <tr><td>API 文件</td><td>內嵌 OpenAPI 3.1 + Scalar UI（<code>/docs</code>）。</td></tr>
-          <tr><td>追蹤與日誌</td><td>OTLP HTTP 匯出（可選）；slog JSON/text；請求 ID 與 trace 關聯。</td></tr>
+          <tr><td>API 文件</td><td>內嵌 OpenAPI 3.1 + 離線 Swagger UI（<code>/docs/</code>）。</td></tr>
+          <tr><td>日誌與認證</td><td>僅結構化日誌：slog JSON/text（無追蹤後端）；可選入站 <code>X-API-Key</code> 認證。</td></tr>
         </tbody>
       </table>
 
@@ -310,19 +310,19 @@
     <section id="layout">
       <h2>目錄結構</h2>
       <pre><code>graph-api-gateway/
-├── cmd/graph-api-gateway/     # main：載入設定、OTel、組裝 HTTP server
+├── cmd/graph-api-gateway/     # main：載入設定、組裝 HTTP server
 ├── internal/
-│   ├── api/                   # Gin 路由、handlers、middleware、嵌入的 OpenAPI/Scalar
+│   ├── api/                   # Gin 路由、handlers、middleware、嵌入的 OpenAPI/Swagger UI、auth middleware
+│   ├── auth/                  # 入站 X-API-Key 驗證 (KeySet)
 │   ├── build/                 # ldflags 注入的 version / commit
 │   ├── client/                # kube-state-graph、switch 的 resty 客戶端
 │   ├── config/                # 環境變數載入與驗證
 │   ├── merge/                 # 純函式：多圖 union（無 I/O）
-│   ├── observability/         # OTLP tracing、slog handler
+│   ├── observability/         # slog logger
 │   └── pipeline/              # ExtractIPs、ReconcileSwitch（純函式）
 ├── docs/                      # swag 產生的 swagger + 本 HTML 指南
-├── tools/openapi-postprocess/ # 修正 Scalar 讀不到的 parameter example
+├── tools/openapi-postprocess/ # 修正 OpenAPI renderer 讀不到的 parameter example
 ├── deploy/docker/Dockerfile   # 多階段建置 → distroless 映像
-├── scripts/refresh-docs-ui.sh # 更新 vendored Scalar 靜態資源
 ├── openspec/                  # 設計規格與變更紀錄（OpenSpec 工作流）
 ├── Makefile                   # build / test / docs / ci / docker
 └── README.md                  # 英文簡介</code></pre>
@@ -373,8 +373,7 @@ X-API-Key: {SWITCH_GRAPH_API_KEY}   // 若設定
           <tr><td><span class="badge badge-get">GET</span></td><td><code>/readyz</code></td><td>就緒探針；兩後端皆可達才 <code>200</code>，否則 <code>503</code></td></tr>
           <tr><td><span class="badge badge-get">GET</span></td><td><code>/openapi.yaml</code></td><td>內嵌 OpenAPI 3.1 YAML</td></tr>
           <tr><td><span class="badge badge-get">GET</span></td><td><code>/openapi.json</code></td><td>內嵌 OpenAPI 3.1 JSON</td></tr>
-          <tr><td><span class="badge badge-get">GET</span></td><td><code>/docs</code></td><td>Scalar API Reference UI</td></tr>
-          <tr><td><span class="badge badge-get">GET</span></td><td><code>/docs/assets/*</code></td><td>Scalar 靜態資源</td></tr>
+          <tr><td><span class="badge badge-get">GET</span></td><td><code>/docs/</code></td><td>Swagger UI（離線內嵌）</td></tr>
         </tbody>
       </table>
 
@@ -387,7 +386,7 @@ X-API-Key: {SWITCH_GRAPH_API_KEY}   // 若設定
           <tr><td><code>root</code>, <code>depth</code>, <code>direction</code></td><td>圖遍歷錨點與方向（<code>in</code>|<code>out</code>|<code>both</code>）</td></tr>
         </tbody>
       </table>
-      <p>完整參數與回應 schema 請在執行中的服務開啟 <a href="#local-run"><code>/docs</code></a> 查看。</p>
+      <p>完整參數與回應 schema 請在執行中的服務開啟 <a href="#local-run"><code>/docs/</code></a> 查看。</p>
     </section>
 
     <section id="config">
@@ -407,12 +406,13 @@ X-API-Key: {SWITCH_GRAPH_API_KEY}   // 若設定
           <tr><td><code>SWITCH_GRAPH_URL</code></td><td><em>必填</em></td><td>switch 後端根 URL（格式同左）</td></tr>
           <tr><td><code>SWITCH_GRAPH_API_KEY</code></td><td><code>""</code></td><td>同上</td></tr>
           <tr><td><code>SWITCH_GRAPH_TIMEOUT</code></td><td><code>10s</code></td><td>單次 switch 呼叫逾時</td></tr>
-          <tr><td><code>OTEL_EXPORTER_OTLP_ENDPOINT</code></td><td>未設定</td><td>設定後啟用 OTLP/HTTP trace 匯出；未設定則 noop tracer</td></tr>
-          <tr><td><code>OTEL_*</code></td><td>—</td><td>標準 OpenTelemetry SDK 環境變數</td></tr>
+          <tr><td><code>API_KEYS</code></td><td><code>""</code></td><td>逗號分隔的入站 API key；空 = 停用認證</td></tr>
+          <tr><td><code>API_KEYS_FILE</code></td><td><code>""</code></td><td>金鑰檔路徑，一行一把，<code>#</code> 註解；優先於 <code>API_KEYS</code>；熱重載</td></tr>
+          <tr><td><code>API_KEYS_RELOAD_INTERVAL</code></td><td><code>30s</code></td><td>金鑰檔熱重載間隔；<code>0</code> 停用熱重載</td></tr>
         </tbody>
       </table>
       <div class="callout warn">
-        <strong>注意：</strong>即使只想預覽 <code>/docs</code>，程式仍要求兩個 <code>*_URL</code> 在啟動時存在（可用 placeholder URL）。實際呼叫 <code>/v1/graph</code> 時若後端不存在會得到 <code>502</code>。
+        <strong>注意：</strong>即使只想預覽 <code>/docs/</code>，程式仍要求兩個 <code>*_URL</code> 在啟動時存在（可用 placeholder URL）。實際呼叫 <code>/v1/graph</code> 時若後端不存在會得到 <code>502</code>。
       </div>
     </section>
 
@@ -463,7 +463,7 @@ export KUBE_STATE_GRAPH_URL="http://localhost:9001"    # 改成你的 URL
 export KUBE_STATE_GRAPH_API_KEY=""                   # 若需要
 export SWITCH_GRAPH_URL="http://localhost:9002"
 export SWITCH_GRAPH_API_KEY=""
-# 可選：export OTEL_EXPORTER_OTLP_ENDPOINT="http://localhost:4318"
+# 可選：export API_KEYS="secret-key-1,secret-key-2"  # 啟用入站 X-API-Key 認證
 
 ./bin/graph-api-gateway</code></pre>
       <p>或使用一行啟動（請替換 URL）：</p>
@@ -476,13 +476,13 @@ LOG_FORMAT=text LOG_LEVEL=debug \
       <h4>B1 — 無 Docker</h4>
       <pre><code>make docs-preview
 # 前景執行，Ctrl-C 結束
-open http://localhost:8080/docs</code></pre>
+open http://localhost:8080/docs/</code></pre>
       <p>使用 placeholder 後端 URL；<code>/v1/graph</code> 會 <code>502</code> 屬預期。</p>
 
       <h4>B2 — Docker 容器</h4>
       <pre><code>make docker-docs
 # 或背景：make docker-docs DETACH=1
-open http://localhost:8080/docs
+open http://localhost:8080/docs/
 make docker-docs-stop   # 停止</code></pre>
 
       <h3>開發常用 Make 目標</h3>
@@ -508,7 +508,7 @@ make docker-docs-stop   # 停止</code></pre>
       <ol class="step-list">
         <li>
           <strong>在 <code>internal/api/server.go</code> 註冊路由</strong><br />
-          例如 <code>r.GET("/v1/foo", s.handleFoo)</code>。Middleware 鏈已全域套用（Recovery、OTel、Request-ID、Access log）。
+          例如 <code>r.GET("/v1/foo", s.handleFoo)</code>。Middleware 鏈已全域套用（Recovery、Request-ID、Access log、API-key）。
         </li>
         <li>
           <strong>在 <code>internal/api/handlers.go</code>（或新檔）實作 handler</strong><br />
@@ -564,18 +564,18 @@ make docker-docs-stop   # 停止</code></pre>
       <ol>
         <li><strong>Kube GET 行為：</strong> <code>internal/client/kubestategraph.go</code> — <code>FetchGraph</code> 轉發 raw query。</li>
         <li><strong>Switch POST 行為：</strong> <code>internal/client/switch.go</code> — <code>FetchGraphByIPs</code> 組 <code>[{"ip":...}]</code> body。</li>
-        <li><strong>共用傳輸：</strong> <code>internal/client/transport.go</code> — otelhttp 包裝的 <code>http.Client</code>。</li>
+        <li><strong>共用傳輸：</strong>現為 <code>internal/client/kubestategraph.go</code> 內 <code>newRestyClient</code> 建立的純 <code>&http.Client{Timeout}</code>（<code>transport.go</code> 已移除）。</li>
         <li><strong>新後端：</strong> 在 <code>config/config.go</code> 加 env 前綴與驗證；在 <code>main.go</code> 建 client 並注入 <code>api.New</code>；擴充 <code>Server</code> struct 與 <code>handleReadyz</code> 探測列表。</li>
       </ol>
       <div class="callout">
         設計文件建議先讀 <code>openspec/changes/init-graph-api-gateway/design.md</code>（決策 D2、D9 等），重大行為變更可走 OpenSpec 變更流程（<code>.claude/skills/openspec-*</code>）。
       </div>
 
-      <h3 id="extend-docs">更新 API 文件與 Scalar UI</h3>
+      <h3 id="extend-docs">更新 API 文件與 Swagger UI</h3>
       <ul>
-        <li><code>make docs</code> — 從註解產生 OpenAPI；<code>tools/openapi-postprocess</code> 會把 query param 的 <code>example</code> 複製到 <code>schema.example</code> 供 Scalar 顯示。</li>
-        <li><code>make refresh-docs-ui</code> — 更新 <code>internal/api/static/scalar/</code> vendored  bundle（升級 Scalar 版本時）。</li>
-        <li>嵌入路徑：<code>internal/api/docs.go</code> 使用 <code>//go:embed</code> 服務靜態檔。</li>
+        <li><code>make docs</code> — 從註解產生 OpenAPI；<code>tools/openapi-postprocess</code> 會把 query param 的 <code>example</code> 複製到 <code>schema.example</code> 供 OpenAPI renderer 顯示。</li>
+        <li>Swagger UI bundle 透過 <code>github.com/swaggo/files/v2</code> 內嵌隨二進位出貨，無需手動刷新。</li>
+        <li>嵌入路徑：<code>internal/api/docs.go</code> 使用 <code>//go:embed</code> 服務 OpenAPI 規格；<code>internal/api/swagger.go</code> 服務 Swagger UI。</li>
       </ul>
 
       <h3>建議的 PR 前檢查清單</h3>
@@ -604,11 +604,10 @@ go test ./internal/pipeline/... -v -run TestExtract   # 單包/單測</code></pr
 
     <section id="observability">
       <h2>可觀測性</h2>
-      <h3>Tracing</h3>
+      <h3>認證與可觀測性</h3>
       <ul>
-        <li>入站：<code>otelgin.Middleware</code> 建立 server span，尊重 <code>traceparent</code>。</li>
-        <li>出站：<code>otelhttp.NewTransport</code> 包在 resty 的 <code>http.Client</code> 上，自動注入 trace context。</li>
-        <li>未設定 <code>OTEL_EXPORTER_OTLP_ENDPOINT</code> 時使用 noop tracer（零開銷）。</li>
+        <li>無追蹤後端；可觀測性僅採 slog 結構化日誌。</li>
+        <li>可選入站 <code>X-API-Key</code> 認證；health（<code>/livez</code>、<code>/readyz</code>）、spec（<code>/openapi.{yaml,json}</code>）與 <code>/docs/*</code> 路由豁免。</li>
       </ul>
 
       <h3>Logging</h3>
@@ -616,7 +615,7 @@ go test ./internal/pipeline/... -v -run TestExtract   # 單包/單測</code></pr
         <li><code>LOG_FORMAT=json</code> 適合生產；<code>text</code> 適合本地除錯。</li>
         <li>每個請求一筆 access log（<code>method</code>、<code>path</code>、<code>status</code>、<code>duration_ms</code>、<code>request_id</code>）。</li>
         <li><code>/livez</code>、<code>/readyz</code> 的 2xx 不寫 access log，避免探針洗版。</li>
-        <li><code>X-Request-ID</code>：客戶端可傳入（需符合字元/長度限制），否則伺服器產生 UUID，並寫入 span attribute <code>http.request_id</code>。</li>
+        <li><code>X-Request-ID</code>：客戶端可傳入（需符合字元/長度限制），否則伺服器產生 UUID。</li>
       </ul>
     </section>
 
@@ -662,7 +661,7 @@ go test ./internal/pipeline/... -v -run TestExtract   # 單包/單測</code></pr
 
     <footer>
       <p>文件產生自 repo 原始碼與 <code>openspec/changes/init-graph-api-gateway/design.md</code>。若行為與程式碼不一致，以程式碼為準。</p>
-      <p>英文簡介：<code>README.md</code> · 互動 API 文件：執行服務後開啟 <code>/docs</code></p>
+      <p>英文簡介：<code>README.md</code> · 互動 API 文件：執行服務後開啟 <code>/docs/</code></p>
     </footer>
   </main>
 </div>
