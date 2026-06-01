@@ -6,7 +6,6 @@
 //	@description
 //	@description	**Authentication.** When the gateway is started with API keys configured (`API_KEYS` or `API_KEYS_FILE`), every request to `/v1/*` MUST carry an `X-API-Key: <key>` header. Missing or invalid keys yield `401 Unauthorized`. Health probes (`/livez`, `/readyz`), the OpenAPI spec (`/openapi.*`), and the Swagger UI (`/docs/*`) are exempt and require no key.
 //	@BasePath		/
-//	@schemes		http https
 //
 //	@securityDefinitions.apikey	ApiKeyAuth
 //	@in							header

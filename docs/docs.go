@@ -182,26 +182,6 @@ const docTemplate = `{
                 ]
             }
         },
-        "/openapi.yaml": {
-            "get": {
-                "responses": {
-                    "200": {
-                        "content": {
-                            "application/yaml": {
-                                "schema": {
-                                    "type": "string"
-                                }
-                            }
-                        },
-                        "description": "OpenAPI 3.1 YAML"
-                    }
-                },
-                "summary": "OpenAPI spec (YAML)",
-                "tags": [
-                    "docs"
-                ]
-            }
-        },
         "/readyz": {
             "get": {
                 "responses": {

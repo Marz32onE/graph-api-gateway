@@ -320,8 +320,7 @@
 │   ├── merge/                 # 純函式：多圖 union（無 I/O）
 │   ├── observability/         # slog logger
 │   └── pipeline/              # ExtractIPs、ReconcileSwitch（純函式）
-├── docs/                      # swag 產生的 swagger + 本 HTML 指南
-├── tools/openapi-postprocess/ # 修正 OpenAPI renderer 讀不到的 parameter example
+├── docs/                      # swag 產生的 OpenAPI 規格（編入 binary）+ 本 HTML 指南
 ├── deploy/docker/Dockerfile   # 多階段建置 → distroless 映像
 ├── openspec/                  # 設計規格與變更紀錄（OpenSpec 工作流）
 ├── Makefile                   # build / test / docs / ci / docker
@@ -371,8 +370,7 @@ X-API-Key: {SWITCH_GRAPH_API_KEY}   // 若設定
           <tr><td><span class="badge badge-get">GET</span></td><td><code>/v1/graph</code></td><td>合併後的 Cytoscape 圖（主要業務 API）</td></tr>
           <tr><td><span class="badge badge-get">GET</span></td><td><code>/livez</code></td><td>存活探針，永遠 <code>200 ok</code></td></tr>
           <tr><td><span class="badge badge-get">GET</span></td><td><code>/readyz</code></td><td>就緒探針；兩後端皆可達才 <code>200</code>，否則 <code>503</code></td></tr>
-          <tr><td><span class="badge badge-get">GET</span></td><td><code>/openapi.yaml</code></td><td>內嵌 OpenAPI 3.1 YAML</td></tr>
-          <tr><td><span class="badge badge-get">GET</span></td><td><code>/openapi.json</code></td><td>內嵌 OpenAPI 3.1 JSON</td></tr>
+          <tr><td><span class="badge badge-get">GET</span></td><td><code>/openapi.json</code></td><td>產生的 OpenAPI 3.1 規格（編入 binary）</td></tr>
           <tr><td><span class="badge badge-get">GET</span></td><td><code>/docs/</code></td><td>Swagger UI（離線內嵌）</td></tr>
         </tbody>
       </table>
@@ -492,7 +490,7 @@ make docker-docs-stop   # 停止</code></pre>
           <tr><td><code>make build</code></td><td>編譯至 <code>bin/graph-api-gateway</code></td></tr>
           <tr><td><code>make test</code></td><td>單元測試 + race + shuffle</td></tr>
           <tr><td><code>make ci</code></td><td>lint + vuln + test + check-docs（等同 CI）</td></tr>
-          <tr><td><code>make docs</code></td><td>從 handler 註解重新產生 OpenAPI 並複製到 embed 目錄</td></tr>
+          <tr><td><code>make docs</code></td><td>從 handler 註解重新產生 OpenAPI 規格（docs/，編入 binary）</td></tr>
           <tr><td><code>make check-docs</code></td><td>確認 committed 文件與原始碼同步</td></tr>
           <tr><td><code>make docker-build</code></td><td>建置 distroless 映像</td></tr>
           <tr><td><code>make cover</code></td><td>測試覆蓋率報告</td></tr>
@@ -520,7 +518,7 @@ make docker-docs-stop   # 停止</code></pre>
         </li>
         <li>
           <strong>執行 <code>make docs</code></strong><br />
-          會產生 <code>docs/swagger.{yaml,json}</code> 並複製到 <code>internal/api/static/openapi/</code>。CI 的 <code>docs-drift</code> job 會跑 <code>make check-docs</code>，未提交會失敗。
+          會在 <code>docs/</code> 重新產生 OpenAPI 規格(編入 binary)。CI 的 <code>docs-drift</code> job 會跑 <code>make check-docs</code>,未提交會失敗。
         </li>
         <li>
           <strong>補測試</strong><br />
@@ -573,9 +571,9 @@ make docker-docs-stop   # 停止</code></pre>
 
       <h3 id="extend-docs">更新 API 文件與 Swagger UI</h3>
       <ul>
-        <li><code>make docs</code> — 從註解產生 OpenAPI；<code>tools/openapi-postprocess</code> 會把 query param 的 <code>example</code> 複製到 <code>schema.example</code> 供 OpenAPI renderer 顯示。</li>
-        <li>Swagger UI bundle 透過 <code>github.com/swaggo/files/v2</code> 內嵌隨二進位出貨，無需手動刷新。</li>
-        <li>嵌入路徑：<code>internal/api/docs.go</code> 使用 <code>//go:embed</code> 服務 OpenAPI 規格；<code>internal/api/swagger.go</code> 服務 Swagger UI。</li>
+        <li><code>make docs</code> — 從註解產生 OpenAPI 規格(<code>docs/</code>);產生的 <code>docs</code> 套件以 Go 字串編入 binary。</li>
+        <li>Swagger UI bundle 透過 <code>github.com/swaggo/files/v2</code> 內嵌隨二進位出貨,無需手動刷新。</li>
+        <li>服務方式:<code>internal/api/docs.go</code> 以 <code>docs.SwaggerInfo.ReadDoc()</code> 服務 <code>/openapi.json</code>(免 embed);<code>internal/api/swagger.go</code> 服務 Swagger UI。</li>
       </ul>
 
       <h3>建議的 PR 前檢查清單</h3>
@@ -653,7 +651,7 @@ go test ./internal/pipeline/... -v -run TestExtract   # 單包/單測</code></pr
       <p>不會。<code>ExtractIPs</code> 為空時跳過 switch 階段，最後 <code>Merge</code> 僅輸出 kube 主圖（仍走 merge 以保持信封一致）。</p>
 
       <h4><code>make check-docs</code> 失敗</h4>
-      <p>執行 <code>make docs</code>，將 <code>docs/</code> 與 <code>internal/api/static/openapi/</code> 的變更一併 commit。</p>
+      <p>執行 <code>make docs</code>，將 <code>docs/</code> 的變更一併 commit。</p>
 
       <h4>Go 版本與 Dockerfile 不一致？</h4>
       <p><code>go.mod</code> 要求 Go 1.25；<code>deploy/docker/Dockerfile</code> 的 <code>GO_VERSION</code> build arg 預設 1.24，建置時可覆寫：<code>docker build --build-arg GO_VERSION=1.25 ...</code>。</p>

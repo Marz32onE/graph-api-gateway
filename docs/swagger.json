@@ -125,16 +125,15 @@
             }
         }
     },
-    "externalDocs": {
-        "description": "",
-        "url": ""
-    },
     "info": {
         "description": "HTTP gateway that runs a sequential pipeline: (1) fetch the kube-state-graph response with the inbound query, (2) extract `data.ipaddress` from every `node`-type entry, (3) if any IPs were collected, POST those IPs to the switch backend batched as a single `[{\"ip\":…}]` JSON body, (4) re-anchor switch shadow nodes onto kube node IDs via IP match, (5) merge into a single Cytoscape.js envelope. Emits structured logs via slog. Any backend failure returns `502`.\n\n**Authentication.** When the gateway is started with API keys configured (`API_KEYS` or `API_KEYS_FILE`), every request to `/v1/*` MUST carry an `X-API-Key: \u003ckey\u003e` header. Missing or invalid keys yield `401 Unauthorized`. Health probes (`/livez`, `/readyz`), the OpenAPI spec (`/openapi.*`), and the Swagger UI (`/docs/*`) are exempt and require no key.",
         "title": "graph-api-gateway",
         "version": "v1"
     },
-    "openapi": "3.1.0",
+    "externalDocs": {
+        "description": "",
+        "url": ""
+    },
     "paths": {
         "/livez": {
             "get": {
@@ -171,26 +170,6 @@
                     }
                 },
                 "summary": "OpenAPI spec (JSON)",
-                "tags": [
-                    "docs"
-                ]
-            }
-        },
-        "/openapi.yaml": {
-            "get": {
-                "responses": {
-                    "200": {
-                        "content": {
-                            "application/yaml": {
-                                "schema": {
-                                    "type": "string"
-                                }
-                            }
-                        },
-                        "description": "OpenAPI 3.1 YAML"
-                    }
-                },
-                "summary": "OpenAPI spec (YAML)",
                 "tags": [
                     "docs"
                 ]
@@ -357,6 +336,7 @@
             }
         }
     },
+    "openapi": "3.1.0",
     "servers": [
         {
             "url": "/"

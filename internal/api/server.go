@@ -49,7 +49,6 @@ func New(cfg *config.Config, logger *slog.Logger, ksg *client.KubeStateGraphClie
 	r.GET("/readyz", s.handleReadyz)
 	r.GET("/v1/graph", s.handleGraph)
 
-	r.GET("/openapi.yaml", s.handleOpenAPIYAML)
 	r.GET("/openapi.json", s.handleOpenAPIJSON)
 	r.GET("/docs/*filepath", s.handleDocsUI)
 

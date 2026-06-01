@@ -16,7 +16,6 @@ const APIKeyHeader = "X-API-Key" //nolint:gosec // G101 false positive — heade
 var openPaths = map[string]struct{}{
 	"/livez":          {},
 	"/readyz":         {},
-	"/openapi.yaml":   {},
 	"/openapi.json":   {},
 	"/docs/*filepath": {},
 }

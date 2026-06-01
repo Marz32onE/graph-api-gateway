@@ -50,14 +50,21 @@ func TestDocsUI_ServesEmbeddedAsset(t *testing.T) {
 	}
 }
 
-func TestOpenAPIRoutes_ServeEmbeddedSpec(t *testing.T) {
+func TestOpenAPIJSON_ServesGeneratedSpec(t *testing.T) {
 	s := newTestServer(t, "http://unused", "http://unused", io.Discard)
-	for _, p := range []string{"/openapi.json", "/openapi.yaml"} {
-		req := httptest.NewRequest(http.MethodGet, p, nil)
-		w := httptest.NewRecorder()
-		s.Handler().ServeHTTP(w, req)
-		if w.Code != http.StatusOK {
-			t.Errorf("%s: want 200, got %d", p, w.Code)
-		}
+	req := httptest.NewRequest(http.MethodGet, "/openapi.json", nil)
+	w := httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("/openapi.json: want 200, got %d", w.Code)
+	}
+	if ct := w.Header().Get("Content-Type"); !strings.Contains(ct, "application/json") {
+		t.Errorf("content-type: want application/json, got %q", ct)
+	}
+	// The served spec is the generated OpenAPI 3.1 document.
+	body := w.Body.String()
+	if !strings.Contains(body, `"openapi"`) || !strings.Contains(body, `/v1/graph`) {
+		t.Errorf("served spec missing expected fields: %s", body[:min(300, len(body))])
 	}
 }

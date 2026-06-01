@@ -24,8 +24,7 @@ Structured logging is emitted via `log/slog` (JSON by default, text via
 | GET | `/v1/graph` | Merged Cytoscape graph (see swagger for query params) |
 | GET | `/livez` | Liveness probe — always `200 ok` |
 | GET | `/readyz` | Readiness probe — `200 ok` only if both backends are reachable, else `503` |
-| GET | `/openapi.yaml` | Embedded OpenAPI 3.1 YAML |
-| GET | `/openapi.json` | Embedded OpenAPI 3.1 JSON |
+| GET | `/openapi.json` | Generated OpenAPI 3.1 spec (compiled into the binary) |
 | GET | `/docs/` | Swagger UI — offline, embedded (swaggo/files) |
 
 Backend fetch errors map to:
@@ -75,7 +74,7 @@ existing ones.
 ```bash
 make build           # binary at ./bin/graph-api-gateway
 make test            # unit + integration tests, race detector on
-make docs            # regenerate docs/swagger.{yaml,json} + embedded copies
+make docs            # regenerate the OpenAPI spec (docs/, compiled into the binary)
 make check-docs      # CI-style check that committed docs match the source
 make docker-build    # build the distroless container image
 make docker-docs     # run the container locally so /docs/ is reachable
@@ -93,7 +92,7 @@ internal/config            # env loading + validation
 internal/merge             # graph union helper (pure)
 internal/observability     # slog logger wiring
 internal/pipeline          # IP extraction + switch ID reconciliation
-tools/openapi-postprocess  # swag → OpenAPI renderer example fix-up
+docs/                      # swag-generated OpenAPI spec (compiled into the binary)
 ```
 
 See `openspec/changes/init-graph-api-gateway/` for the full design rationale.

@@ -135,20 +135,19 @@ cover:
 	go test ./... -coverprofile=coverage.out -covermode=atomic
 	go tool cover -func=coverage.out | tail -1
 
+## Regenerate the OpenAPI spec from the swag annotations. The generated docs/
+## package is compiled into the binary (the swaggo convention) and served at
+## /openapi.json via docs.SwaggerInfo.ReadDoc() — no embedding/copy step.
 docs:
 	go tool swag init \
 		-g cmd/graph-api-gateway/main.go \
 		--output docs \
 		--parseDependency --parseInternal --v3.1=true
-	go run ./tools/openapi-postprocess docs/swagger.json docs/swagger.yaml
-	@mkdir -p internal/api/static/openapi
-	@cp docs/swagger.yaml internal/api/static/openapi/openapi.yaml
-	@cp docs/swagger.json internal/api/static/openapi/openapi.json
 
 check-docs: docs
-	@if ! git diff --quiet -- docs/ internal/api/static/openapi/; then \
+	@if ! git diff --quiet -- docs/; then \
 		echo "FAIL: docs are out of sync. Run 'make docs' and commit."; \
-		git --no-pager diff -- docs/ internal/api/static/openapi/; \
+		git --no-pager diff -- docs/; \
 		exit 1; \
 	fi
 
@@ -169,7 +168,6 @@ docker-docs: docker-build
 	@echo "Starting $(DOCS_NAME) on http://localhost:$(DOCS_PORT)/docs/"
 	@echo "  Swagger UI: http://localhost:$(DOCS_PORT)/docs/"
 	@echo "  OpenAPI   : http://localhost:$(DOCS_PORT)/openapi.json"
-	@echo "              http://localhost:$(DOCS_PORT)/openapi.yaml"
 	docker run --rm $(if $(DETACH),-d,) --name $(DOCS_NAME) \
 		-p $(DOCS_PORT):8080 \
 		-e KUBE_STATE_GRAPH_URL=http://placeholder-ksg:8080 \
@@ -189,7 +187,6 @@ docs-preview: build
 	@echo "Starting graph-api-gateway with placeholder backends on http://localhost:$(PREVIEW_PORT)"
 	@echo "  Swagger UI: http://localhost:$(PREVIEW_PORT)/docs/"
 	@echo "  OpenAPI   : http://localhost:$(PREVIEW_PORT)/openapi.json"
-	@echo "              http://localhost:$(PREVIEW_PORT)/openapi.yaml"
 	@echo "  (Note: /v1/graph will 502 — backends are placeholders.)"
 	LISTEN_ADDR=":$(PREVIEW_PORT)" \
 	KUBE_STATE_GRAPH_URL=http://placeholder-ksg:8080 \

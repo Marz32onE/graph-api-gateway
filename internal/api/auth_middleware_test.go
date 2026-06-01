@@ -95,7 +95,7 @@ func TestAuth_OpenPaths_BypassWithoutKey(t *testing.T) {
 	s := newAuthServer(t, "k1")
 
 	// All open paths must answer without a key and must NOT be 401.
-	for _, path := range []string{"/livez", "/readyz", "/openapi.yaml", "/openapi.json", "/docs/"} {
+	for _, path := range []string{"/livez", "/readyz", "/openapi.json", "/docs/"} {
 		w := doReq(s, http.MethodGet, path, "")
 		if w.Code == http.StatusUnauthorized {
 			t.Errorf("open path %s should bypass auth, got 401", path)
