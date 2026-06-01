@@ -16,8 +16,7 @@ import (
 // directly, instead of calling a kube-state-graph HTTP service — the same graph
 // logic with no HTTP hop and no JSON round-trip. It satisfies GraphBackend.
 type KubeStateGraphClient struct {
-	engine  *kubegraph.Engine
-	querier promql.Querier
+	engine *kubegraph.Engine
 }
 
 var _ GraphBackend = (*KubeStateGraphClient)(nil)
@@ -36,7 +35,7 @@ func NewKubeStateGraphClient(vmURL, metricPrefix string, buildTimeout time.Durat
 		MetricPrefix: metricPrefix,
 		APITimeout:   buildTimeout,
 	})
-	return &KubeStateGraphClient{engine: eng, querier: q}, nil
+	return &KubeStateGraphClient{engine: eng}, nil
 }
 
 // FetchGraph parses the inbound query and builds the graph in-process, returning
@@ -54,8 +53,8 @@ func (c *KubeStateGraphClient) FetchGraph(ctx context.Context, q GraphQuery) (*c
 	return &body, nil
 }
 
-// Probe reports VictoriaMetrics reachability for /readyz via a cheap up{} query.
+// Probe reports VictoriaMetrics reachability for /readyz, delegating to the
+// engine's up{} health primitive (no bare querier, no out-of-clock time).
 func (c *KubeStateGraphClient) Probe(ctx context.Context) error {
-	_, err := c.querier.Instant(ctx, "up", "up", time.Now().UTC())
-	return err
+	return c.engine.Probe(ctx)
 }
