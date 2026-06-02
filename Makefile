@@ -11,7 +11,7 @@ LDFLAGS := -s -w \
 
 .PHONY: build test vet lint vuln ci cover docs check-docs vendor \
         docker-build docker-docs docker-docs-stop docs-preview clean tools \
-        init init-go init-tools init-hooks doctor tools-versions
+        init init-go init-tools init-hooks doctor tools-versions run
 
 ## ---------------------------------------------------------------------------
 ## Local-dev bootstrap.
@@ -204,6 +204,18 @@ docs-preview: build
 	KUBE_STATE_GRAPH_URL=http://placeholder-ksg:8080 \
 	SWITCH_GRAPH_URL=http://placeholder-switch:8080 \
 	./$(BIN)
+
+## Local dev run. Sources ENV_FILE (default .env) into the environment, then
+## go-runs the service. `set -a` auto-exports every assignment in the file, so
+## a plain KEY=value file needs no `export`. Override the file per-invocation:
+##   make run                 # loads .env
+##   make run ENV_FILE=.env.dev
+## Requires VICTORIA_METRICS_URL and SWITCH_GRAPH_URL set in the file.
+ENV_FILE ?= .env
+run:
+	@test -f $(ENV_FILE) || { echo "ERROR: env file '$(ENV_FILE)' not found (set ENV_FILE=...)"; exit 1; }
+	@echo ">> loading $(ENV_FILE) and running ./cmd/graph-api-gateway"
+	set -a; . ./$(ENV_FILE); set +a; go run ./cmd/graph-api-gateway
 
 clean:
 	rm -rf $(BIN_DIR) coverage.out
