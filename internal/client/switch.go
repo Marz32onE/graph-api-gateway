@@ -37,5 +37,5 @@ func (c *SwitchGraphClient) FetchGraphByIPs(ctx context.Context, ips []string) (
 	for i, ip := range ips {
 		body[i] = ipRequest{IP: ip}
 	}
-	return postGraph(ctx, c.resty, c.baseURL, body)
+	return postGraph(ctx, c.resty, body)
 }

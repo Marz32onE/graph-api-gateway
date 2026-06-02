@@ -12,7 +12,6 @@ import (
 
 	"github.com/go-resty/resty/v2"
 
-	"github.com/marz32one/graph-api-gateway/internal/build"
 	"github.com/marz32one/kube-state-graph/pkg/cytoscape"
 )
 
@@ -28,24 +27,21 @@ const maxErrBodyExcerpt = 256
 const probePath = "/livez"
 
 // graphClient is the resty-backed transport core for the HTTP switch backend
-// (optional X-API-Key, per-call timeout, /livez probe).
+// (optional X-API-Key, per-call timeout, /livez probe). The base URL lives on
+// the resty client (SetBaseURL); call sites read it back via resty.Client.BaseURL.
 type graphClient struct {
-	resty   *resty.Client
-	baseURL string
+	resty *resty.Client
 }
 
 func newGraphClient(baseURL, apiKey string, timeout time.Duration) *graphClient {
-	return &graphClient{
-		baseURL: baseURL,
-		resty:   newRestyClient(baseURL, apiKey, timeout),
-	}
+	return &graphClient{resty: newRestyClient(baseURL, apiKey, timeout)}
 }
 
 // Probe checks that the backend is reachable, used by /readyz. Any HTTP
 // response (including 404 or 405) is treated as "reachable"; only transport
 // errors and 5xx are considered failures.
 func (c *graphClient) Probe(ctx context.Context) error {
-	return probeBackend(ctx, c.resty, c.baseURL)
+	return probeBackend(ctx, c.resty)
 }
 
 func newRestyClient(baseURL, apiKey string, timeout time.Duration) *resty.Client {
@@ -60,19 +56,6 @@ func newRestyClient(baseURL, apiKey string, timeout time.Duration) *resty.Client
 		SetRetryWaitTime(100 * time.Millisecond).
 		SetRetryMaxWaitTime(2 * time.Second).
 		AddRetryCondition(retryOnTransient)
-
-	// OnBeforeRequest runs once per outbound request, just before it is sent —
-	// the central place to mutate every request. Here it stamps a User-Agent so
-	// the switch backend can attribute traffic in its access logs. Other uses:
-	//   - propagate the inbound X-Request-ID from req.Context() for end-to-end
-	//     tracing across services (requires the handler to put it in the ctx);
-	//   - refresh/sign a short-lived auth token right before each call;
-	//   - add per-request debug logging (method + URL + attempt number);
-	//   - inject correlation / tenant headers derived from the context.
-	r.OnBeforeRequest(func(_ *resty.Client, req *resty.Request) error {
-		req.Header.Set("User-Agent", build.ServiceName+"/"+build.Version)
-		return nil
-	})
 
 	if apiKey != "" {
 		r.SetHeader("X-API-Key", apiKey)
@@ -101,8 +84,8 @@ func retryOnTransient(resp *resty.Response, err error) bool {
 // postGraph issues POST {baseURL}{graphPath} with a JSON-encoded body and
 // decodes the Cytoscape response. Used by the switch backend, which is queried
 // with a batched IP list (see switch.go).
-func postGraph(ctx context.Context, r *resty.Client, baseURL string, body any) (*cytoscape.Body, error) {
-	target := baseURL + graphPath
+func postGraph(ctx context.Context, r *resty.Client, body any) (*cytoscape.Body, error) {
+	target := r.BaseURL + graphPath
 	resp, err := r.R().
 		SetContext(ctx).
 		SetHeader("Content-Type", "application/json").
@@ -140,8 +123,8 @@ func decodeGraphResponse(resp *resty.Response, reqDesc string) (*cytoscape.Body,
 
 // probeBackend issues a short GET against {baseURL}/livez. Transport errors and
 // 5xx responses are reported as failure; any 1xx/2xx/3xx/4xx is reachable.
-func probeBackend(ctx context.Context, r *resty.Client, baseURL string) error {
-	target := baseURL + probePath
+func probeBackend(ctx context.Context, r *resty.Client) error {
+	target := r.BaseURL + probePath
 	resp, err := r.R().SetContext(ctx).Get(probePath) // relative; SetBaseURL prepends baseURL
 	if err != nil {
 		return fmt.Errorf("probe: GET %s: %w", target, err)
