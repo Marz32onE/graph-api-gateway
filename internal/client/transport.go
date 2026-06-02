@@ -5,12 +5,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"strings"
 	"time"
 
 	"github.com/go-resty/resty/v2"
 
+	"github.com/marz32one/graph-api-gateway/internal/build"
 	"github.com/marz32one/kube-state-graph/pkg/cytoscape"
 )
 
@@ -35,7 +37,7 @@ type graphClient struct {
 func newGraphClient(baseURL, apiKey string, timeout time.Duration) *graphClient {
 	return &graphClient{
 		baseURL: baseURL,
-		resty:   newRestyClient(apiKey, timeout),
+		resty:   newRestyClient(baseURL, apiKey, timeout),
 	}
 }
 
@@ -46,15 +48,54 @@ func (c *graphClient) Probe(ctx context.Context) error {
 	return probeBackend(ctx, c.resty, c.baseURL)
 }
 
-func newRestyClient(apiKey string, timeout time.Duration) *resty.Client {
+func newRestyClient(baseURL, apiKey string, timeout time.Duration) *resty.Client {
 	// Timeout is set on the underlying http.Client; resty inherits it. The
 	// handler additionally wraps each call in context.WithTimeout for finer
-	// per-stage budgets.
-	r := resty.NewWithClient(&http.Client{Timeout: timeout})
+	// per-stage budgets, which also caps total retry time. SetBaseURL lets call
+	// sites issue relative paths (graphPath/probePath); resty prepends baseURL.
+	r := resty.NewWithClient(&http.Client{Timeout: timeout}).
+		SetBaseURL(baseURL).
+		SetHeader("Accept", "application/json").
+		SetRetryCount(2).
+		SetRetryWaitTime(100 * time.Millisecond).
+		SetRetryMaxWaitTime(2 * time.Second).
+		AddRetryCondition(retryOnTransient)
+
+	// OnBeforeRequest runs once per outbound request, just before it is sent —
+	// the central place to mutate every request. Here it stamps a User-Agent so
+	// the switch backend can attribute traffic in its access logs. Other uses:
+	//   - propagate the inbound X-Request-ID from req.Context() for end-to-end
+	//     tracing across services (requires the handler to put it in the ctx);
+	//   - refresh/sign a short-lived auth token right before each call;
+	//   - add per-request debug logging (method + URL + attempt number);
+	//   - inject correlation / tenant headers derived from the context.
+	r.OnBeforeRequest(func(_ *resty.Client, req *resty.Request) error {
+		req.Header.Set("User-Agent", build.ServiceName+"/"+build.Version)
+		return nil
+	})
+
 	if apiKey != "" {
 		r.SetHeader("X-API-Key", apiKey)
 	}
 	return r
+}
+
+// retryOnTransient retries connection-level failures and 5xx responses, but
+// never retries timeouts or caller cancellation — those must fail fast so the
+// handler can map them to 504 (per-stage timeout) / 499 (client cancel) within
+// the stage budget instead of burning it on backoff sleeps.
+func retryOnTransient(resp *resty.Response, err error) bool {
+	if err != nil {
+		var netErr net.Error
+		if errors.As(err, &netErr) && netErr.Timeout() {
+			return false
+		}
+		if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+			return false
+		}
+		return true // dial/reset/EOF and other transient transport errors
+	}
+	return resp.StatusCode() >= http.StatusInternalServerError
 }
 
 // postGraph issues POST {baseURL}{graphPath} with a JSON-encoded body and
@@ -66,7 +107,7 @@ func postGraph(ctx context.Context, r *resty.Client, baseURL string, body any) (
 		SetContext(ctx).
 		SetHeader("Content-Type", "application/json").
 		SetBody(body).
-		Post(target)
+		Post(graphPath) // relative; SetBaseURL prepends baseURL
 	if err != nil {
 		return nil, fmt.Errorf("client: POST %s: %w", target, err)
 	}
@@ -101,7 +142,7 @@ func decodeGraphResponse(resp *resty.Response, reqDesc string) (*cytoscape.Body,
 // 5xx responses are reported as failure; any 1xx/2xx/3xx/4xx is reachable.
 func probeBackend(ctx context.Context, r *resty.Client, baseURL string) error {
 	target := baseURL + probePath
-	resp, err := r.R().SetContext(ctx).Get(target)
+	resp, err := r.R().SetContext(ctx).Get(probePath) // relative; SetBaseURL prepends baseURL
 	if err != nil {
 		return fmt.Errorf("probe: GET %s: %w", target, err)
 	}
