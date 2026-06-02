@@ -9,7 +9,7 @@ LDFLAGS := -s -w \
 	-X github.com/marz32one/graph-api-gateway/internal/build.Version=$(VERSION) \
 	-X github.com/marz32one/graph-api-gateway/internal/build.Commit=$(COMMIT)
 
-.PHONY: build test vet lint vuln ci cover docs check-docs \
+.PHONY: build test vet lint vuln ci cover docs check-docs vendor check-vendor \
         docker-build docker-docs docker-docs-stop docs-preview clean tools \
         init init-go init-tools init-hooks doctor tools-versions
 
@@ -124,12 +124,12 @@ vuln:
 	    go run golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION) ./...; \
 	fi
 
-## Full local CI mirror — runs the same checks as the four GitHub Actions jobs
-## in .github/workflows/ci.yml (lint, vuln, test, docs-drift), in order.
-## Invoked by the pre-push hook (see `make init-hooks`). Run directly to
+## Full local CI mirror — runs the same checks as the GitHub Actions jobs in
+## .github/workflows/ci.yml (lint, vuln, test, docs-drift, vendor-drift), in
+## order. Invoked by the pre-push hook (see `make init-hooks`). Run directly to
 ## reproduce CI locally before pushing.
-ci: lint vuln test check-docs
-	@echo "ci: all checks passed (lint + vuln + test + docs)"
+ci: lint vuln test check-docs check-vendor
+	@echo "ci: all checks passed (lint + vuln + test + docs + vendor)"
 
 cover:
 	go test ./... -coverprofile=coverage.out -covermode=atomic
@@ -148,6 +148,25 @@ check-docs: docs
 	@if ! git diff --quiet -- docs/; then \
 		echo "FAIL: docs are out of sync. Run 'make docs' and commit."; \
 		git --no-pager diff -- docs/; \
+		exit 1; \
+	fi
+
+## Refresh the vendored dependency tree. The gateway vendors its build + tool
+## dependencies — including the kube-state-graph pkg/ engine pinned at a tagged
+## version (see the require in go.mod) — so builds are fully offline and
+## reproducible: go uses -mod=vendor automatically whenever vendor/ exists.
+## Re-run after any go.mod change or after bumping the kube-state-graph version,
+## then commit vendor/.
+vendor:
+	go mod vendor
+
+## CI drift guard mirroring check-docs: re-vendor and fail if vendor/, go.mod,
+## or go.sum diverge from what is committed (stale tree, forgotten `make
+## vendor`). A clean tree is the offline-build contract.
+check-vendor: vendor
+	@if ! git diff --quiet -- vendor/ go.mod go.sum; then \
+		echo "FAIL: vendor/ out of sync. Run 'make vendor' and commit."; \
+		git --no-pager diff --stat -- vendor/ go.mod go.sum; \
 		exit 1; \
 	fi
 

@@ -1,7 +1,7 @@
 name: CI
 
-# `lint`, `vuln`, `test`, and `docs-drift` are separate jobs; they run in
-# parallel (no `needs` edges) so PR feedback latency = max, not sum.
+# `lint`, `vuln`, `test`, `docs-drift`, and `vendor-drift` are separate jobs;
+# they run in parallel (no `needs` edges) so PR feedback latency = max, not sum.
 on:
   pull_request:
 
@@ -73,3 +73,21 @@ jobs:
       # docs/ and the embedded internal/api/static/openapi/ payload.
       - name: Verify docs in sync
         run: make check-docs
+
+  vendor-drift:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # Single source of truth: `make check-vendor` re-runs `go mod vendor` and
+      # fails if vendor/, go.mod, or go.sum diverge from what is committed —
+      # catches a stale vendor tree or a forgotten `make vendor` after a
+      # kube-state-graph version bump. A clean tree is the offline-build
+      # contract (go uses -mod=vendor automatically when vendor/ exists).
+      - name: Verify vendor in sync
+        run: make check-vendor

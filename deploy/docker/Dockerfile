@@ -1,17 +1,23 @@
 # syntax=docker/dockerfile:1.7
 
-ARG GO_VERSION=1.24
+# Must be >= the `go` directive in go.mod (currently 1.25.0). The base image
+# ships this toolchain, so GOTOOLCHAIN=local never fetches another one.
+ARG GO_VERSION=1.26
 
 FROM golang:${GO_VERSION}-alpine AS builder
 WORKDIR /src
-RUN apk add --no-cache git ca-certificates
-COPY go.mod go.sum ./
-RUN go mod download
+# Fully offline, reproducible build from the committed vendor/ tree: no apk, no
+# `go mod download`, no module proxy. COPY . . brings in vendor/ (not
+# dockerignored); -mod=vendor builds from it; GOTOOLCHAIN=local fails loudly
+# instead of downloading a toolchain if the base image is ever too old.
+ENV GOTOOLCHAIN=local
 COPY . .
 ARG VERSION=dev
 ARG COMMIT=none
 RUN CGO_ENABLED=0 go build \
     -trimpath \
+    -mod=vendor \
+    -buildvcs=false \
     -ldflags "-s -w \
       -X github.com/marz32one/graph-api-gateway/internal/build.Version=${VERSION} \
       -X github.com/marz32one/graph-api-gateway/internal/build.Commit=${COMMIT}" \

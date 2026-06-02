@@ -6,7 +6,7 @@ require (
 	github.com/gin-gonic/gin v1.12.0
 	github.com/go-resty/resty/v2 v2.17.2
 	github.com/google/uuid v1.6.0
-	github.com/marz32one/kube-state-graph v0.0.0-00010101000000-000000000000
+	github.com/marz32one/kube-state-graph v0.0.1
 	github.com/swaggo/files/v2 v2.0.2
 	github.com/swaggo/swag/v2 v2.0.0-rc5
 )
@@ -73,5 +73,3 @@ require (
 )
 
 tool github.com/swaggo/swag/v2/cmd/swag
-
-replace github.com/marz32one/kube-state-graph => ../kube-state-graph
