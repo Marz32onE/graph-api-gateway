@@ -17,8 +17,14 @@ coverage.*
 *.coverprofile
 profile.cov
 
-# Dependency directories (remove the comment below to include it)
-# vendor/
+# Vendored dependencies are NOT committed — keeps the repo small. Go enables
+# vendor mode whenever a vendor/ directory exists (go >= 1.14), so even a
+# partial committed tree breaks `go build`/`test` on every fresh clone with
+# "inconsistent vendoring". Instead the FULL tree is regenerated on demand by
+# `go mod vendor` right before the container build (the `vendor` prerequisite of
+# `docker-build`) so the image builds fully offline; local dev resolves modules
+# from the cache/proxy. kube-state-graph stays pinned via go.mod + go.sum.
+/vendor/
 
 # Go workspace file
 go.work

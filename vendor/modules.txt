@@ -1,8 +1,0 @@
-# github.com/marz32one/kube-state-graph v0.0.1
-## explicit; go 1.25.0
-github.com/marz32one/kube-state-graph/pkg/build
-github.com/marz32one/kube-state-graph/pkg/clock
-github.com/marz32one/kube-state-graph/pkg/cytoscape
-github.com/marz32one/kube-state-graph/pkg/graph
-github.com/marz32one/kube-state-graph/pkg/kubegraph
-github.com/marz32one/kube-state-graph/pkg/promql
