@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/marz32one/kube-state-graph/pkg/cytoscape"
+	"github.com/marz32one/kube-state-graph/pkg/kubegraph"
 
 	"github.com/marz32one/graph-api-gateway/internal/auth"
 	"github.com/marz32one/graph-api-gateway/internal/client"
@@ -235,6 +236,34 @@ func TestGraphHandler_PrimaryFails_NoSwitchCall_502(t *testing.T) {
 	}
 	if sCap.called {
 		t.Errorf("switch backend SHOULD NOT have been called when primary fails")
+	}
+}
+
+func TestGraphHandler_PrimaryParseError_400(t *testing.T) {
+	sCap := &stubCapture{}
+	swSrv := newStub(t, switchResponse, 200, sCap)
+	// The embedded engine rejects a malformed inbound query with a
+	// *kubegraph.ParseError before any upstream I/O; the gateway must surface it
+	// as 400 carrying kube-state-graph's reason code, not 502.
+	ksg := &fakeKSG{err: &kubegraph.ParseError{Reason: "missing_start", Message: "start query parameter is required"}}
+	s := newTestServer(t, ksg, swSrv.URL, io.Discard)
+
+	req := httptest.NewRequest("GET", "/v1/graph", nil)
+	w := httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, req)
+
+	if w.Code != 400 {
+		t.Fatalf("status: want 400, got %d, body=%s", w.Code, w.Body.String())
+	}
+	var er errorResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &er); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if er.Error != "missing_start" {
+		t.Errorf("error: want reason code missing_start, got %q", er.Error)
+	}
+	if sCap.called {
+		t.Errorf("switch backend SHOULD NOT have been called on a parse error")
 	}
 }
 
